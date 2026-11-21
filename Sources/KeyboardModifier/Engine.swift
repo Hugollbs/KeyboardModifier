@@ -83,15 +83,14 @@ final class Engine {
     }
     private func handle(_ value: IOHIDValue) {
         let element = IOHIDValueGetElement(value)
-        guard IOHIDElementGetUsagePage(element) == HID.keyboardPage else { return }
-        let usage = Int(IOHIDElementGetUsage(element))
-        guard HID.keyUsages.contains(usage) else { return }
-        guard IOHIDValueGetIntegerValue(value) != 0 else { return } // appui seulement
+        guard let key = pressedKey(page: Int(IOHIDElementGetUsagePage(element)),
+                                   usage: Int(IOHIDElementGetUsage(element)),
+                                   value: IOHIDValueGetIntegerValue(value)) else { return }
         if let capture = captureHandler {
             captureHandler = nil
-            capture(usage)
+            capture(key)
             return
         }
-        if let action = actions[usage] { run(action) }
+        if let action = actions[key] { run(action) }
     }
 }
