@@ -95,7 +95,7 @@ Les règles sont enregistrées dans `~/.config/keyboardmodifier/config.json`. Tu
 swift build          # compilation de développement
 swift run            # lance l'appli depuis le terminal
 ./scripts/make-app.sh    # construit l'appli .app signée (ad hoc)
-swift scripts/make-icon.swift   # régénère l'icône (voir l'en-tête du script)
+swiftc scripts/make-icon.swift -o /tmp/make-icon && /tmp/make-icon   # régénère l'icône
 ```
 
 Les sources sont dans `Sources/KeyboardModifier/` : `Engine.swift` (écoute et actions), `Config.swift` (fichier JSON), `ConfigView.swift` (fenêtre), `AppDelegate.swift` (barre de menus).
