@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import IOKit.hid
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
@@ -10,10 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         installEditMenu()
         let engine = Engine(config: loadConfig())
         self.engine = engine
-        if !engine.start() {
-            showPermissionAlert()
-            return
-        }
+        startEngine(engine)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "KeyboardModifier")
@@ -37,6 +35,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Appelé aussi à la sortie par Ctrl+C : on rend les touches à macOS
     func applicationWillTerminate(_ notification: Notification) {
         engine?.stop()
+    }
+
+    // Une seule fenêtre à la fois : au premier lancement c'est celle de macOS (demande d'accès),
+    // notre alerte n'est montrée que si l'accès a été refusé avant
+    private func startEngine(_ engine: Engine) {
+        let type = kIOHIDRequestTypeListenEvent
+        let before = IOHIDCheckAccess(type)
+        if before == kIOHIDAccessTypeUnknown {
+            _ = IOHIDRequestAccess(type)
+        }
+        if IOHIDCheckAccess(type) == kIOHIDAccessTypeGranted {
+            if !engine.start() { showRestartAlert() }
+        } else if before != kIOHIDAccessTypeUnknown {
+            showPermissionAlert()
+        }
+    }
+
+    private func showRestartAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Relance l'appli"
+        alert.informativeText = "L'autorisation vient d'être accordée : quitte puis relance KeyboardModifier pour qu'elle soit prise en compte."
+        alert.runModal()
     }
 
     // Sans fenêtre ni terminal, c'est le seul moyen de dire pourquoi l'appli ne fait rien
