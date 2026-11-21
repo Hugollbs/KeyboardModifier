@@ -10,7 +10,7 @@ func setKeysDisabled(_ disabled: Bool, for keyboard: KeyboardID) {
     let payload: [String: Any] = ["UserKeyMapping": mappings]
     guard let data = try? JSONSerialization.data(withJSONObject: payload),
           let json = String(data: data, encoding: .utf8) else {
-        print("Impossible de construire le JSON pour hidutil")
+        log.error("Impossible de construire le JSON pour hidutil")
         return
     }
 
@@ -23,8 +23,8 @@ func setKeysDisabled(_ disabled: Bool, for keyboard: KeyboardID) {
     do {
         try process.run()
         process.waitUntilExit()
-        if process.terminationStatus != 0 { print("hidutil a échoué (code \(process.terminationStatus))") }
+        if process.terminationStatus != 0 { log.error("hidutil a échoué (code \(process.terminationStatus))") }
     } catch {
-        print("Impossible de lancer hidutil : \(error)")
+        log.error("Impossible de lancer hidutil : \(error.localizedDescription)")
     }
 }

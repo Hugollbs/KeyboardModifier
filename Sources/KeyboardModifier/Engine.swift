@@ -42,7 +42,7 @@ final class Engine {
 
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard result == kIOReturnSuccess else {
-            print("Ouverture du clavier impossible : \(String(result, radix: 16))")
+            log.error("Ouverture du clavier impossible : \(String(result, radix: 16))")
             return false
         }
         setKeysDisabled(true, for: keyboard)

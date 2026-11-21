@@ -8,7 +8,7 @@ func run(_ action: Action) {
     case "shell":
         command = ["/bin/zsh", "-c", action.value]
     default:
-        print("Type d'action inconnu : \(action.type)")
+        log.error("Type d'action inconnu : \(action.type)")
         return
     }
 
@@ -18,6 +18,6 @@ func run(_ action: Action) {
     do {
         try process.run() // ne bloque pas : on n'attend pas la fin
     } catch {
-        print("Échec de l'action : \(error)")
+        log.error("Échec de l'action : \(error.localizedDescription)")
     }
 }

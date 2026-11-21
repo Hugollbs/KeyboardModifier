@@ -36,7 +36,7 @@ func loadConfig() -> Config {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(Config.self, from: data)
     } catch {
-        print("Config illisible (\(url.path)) : \(error)")
+        log.error("Config illisible (\(url.path)) : \(error.localizedDescription)")
         exit(1)
     }
 }
@@ -48,6 +48,6 @@ func saveConfig(_ config: Config) {
     do {
         try encoder.encode(config).write(to: url, options: .atomic)
     } catch {
-        print("Impossible d'écrire la config (\(url.path)) : \(error)")
+        log.error("Impossible d'écrire la config (\(url.path)) : \(error.localizedDescription)")
     }
 }
