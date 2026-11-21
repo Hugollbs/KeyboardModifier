@@ -11,6 +11,7 @@ struct RuleRow: Identifiable {
 final class ConfigModel: ObservableObject {
     @Published var rows: [RuleRow]
     @Published var isCapturing = false
+    @Published var lastAdded: UUID? // pour mettre le curseur dans la ligne qu'on vient d'ajouter
     @Published var keyboard: KeyboardID?
     let keyboards = connectedKeyboards()
     private let engine: Engine
@@ -34,7 +35,9 @@ final class ConfigModel: ObservableObject {
             guard let self else { return }
             self.isCapturing = false
             self.rows.removeAll { $0.key == key } // une touche = une seule action
-            self.rows.append(RuleRow(key: key, type: "app", value: ""))
+            let row = RuleRow(key: key, type: "app", value: "")
+            self.rows.append(row)
+            self.lastAdded = row.id
         }
     }
 
@@ -70,23 +73,7 @@ struct ConfigView: View {
             }
             List {
                 ForEach($model.rows) { $row in
-                    HStack {
-                        Text(keyName(row.key))
-                            .frame(width: 100, alignment: .leading)
-                        Picker("", selection: $row.type) {
-                            Text("Application").tag("app")
-                            Text("Commande").tag("shell")
-                        }
-                        .labelsHidden()
-                        .frame(width: 140)
-                        TextField(row.type == "app" ? "Nom de l'app (ex : Safari)" : "Commande (ex : say bonjour)",
-                                  text: $row.value)
-                        if row.type == "app" {
-                            AppPicker(selection: $row.value)
-                        }
-                        Button { model.delete(row.id) } label: { Image(systemName: "trash") }
-                            .buttonStyle(.borderless)
-                    }
+                    RuleRowView(row: $row, autofocus: row.id == model.lastAdded) { model.delete(row.id) }
                 }
             }
             HStack {
@@ -109,32 +96,47 @@ struct ConfigView: View {
         .frame(minWidth: 560, minHeight: 320)
     }
 }
-// Bouton qui ouvre la liste des applications installées, avec une recherche
-struct AppPicker: View {
-    @Binding var selection: String
-    @State private var isOpen = false
-    @State private var search = ""
 
-    private var filtered: [String] {
-        search.isEmpty ? installedApps : installedApps.filter { $0.localizedCaseInsensitiveContains(search) }
+// Une ligne : touche, type d'action, puis le champ de saisie ou, une fois l'appli choisie, son nom et son icône
+struct RuleRowView: View {
+    @Binding var row: RuleRow
+    let autofocus: Bool
+    let onDelete: () -> Void
+    @State private var isEditingApp = false
+
+    // L'appli choisie, si le texte est le nom d'une appli installée et qu'on ne le modifie pas
+    private var chosenAppPath: String? {
+        guard row.type == "app", !isEditingApp else { return nil }
+        return appPath(named: row.value)
     }
 
     var body: some View {
-        Button { isOpen = true } label: { Image(systemName: "list.bullet") }
-            .help("Choisir parmi les applications installées")
-            .popover(isPresented: $isOpen) {
-                VStack {
-                    TextField("Rechercher…", text: $search)
-                    List(filtered, id: \.self) { name in
-                        Button(name) {
-                            selection = name
-                            isOpen = false
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding()
-                .frame(width: 260, height: 320)
+        HStack {
+            Text(keyName(row.key))
+                .frame(width: 100, alignment: .leading)
+            Picker("", selection: $row.type) {
+                Text("Application").tag("app")
+                Text("Commande").tag("shell")
             }
+            .labelsHidden()
+            .frame(width: 140)
+            if let path = chosenAppPath {
+                Text(row.value)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture { isEditingApp = true } // clic : on change d'appli
+                    .help("Cliquer pour changer d'application")
+                Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+                    .resizable()
+                    .frame(width: 28, height: 28)
+            } else if row.type == "app" {
+                AppField(text: $row.value, placeholder: "Nom de l'app (ex : Safari)",
+                         autofocus: autofocus || isEditingApp) { isEditingApp = false }
+            } else {
+                TextField("Commande (ex : say bonjour)", text: $row.value)
+            }
+            Button(action: onDelete) { Image(systemName: "trash") }
+                .buttonStyle(.borderless)
+        }
     }
 }
