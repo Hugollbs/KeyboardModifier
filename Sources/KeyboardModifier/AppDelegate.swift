@@ -4,10 +4,10 @@ import IOKit.hid
 
 private let relaunchFlag = "--relaunched"
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem?
     private var engine: Engine?
-    private var configWindow: NSWindow?
+    private let popover = NSPopover()
     private var accessTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -19,19 +19,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "KeyboardModifier")
 
-        let menu = NSMenu()
-        let configure = NSMenuItem(title: "Configurer…", action: #selector(showConfig), keyEquivalent: ",")
-        configure.target = self
-        menu.addItem(configure)
-        let login = NSMenuItem(title: "Lancer à l'ouverture de session", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
-        login.target = self
-        login.state = isLaunchAtLoginEnabled() ? .on : .off
-        menu.addItem(login)
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quitter", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-        item.menu = menu
+        // Clic : panneau sous l'icône ; clic droit : petit menu (Quitter)
+        item.button?.target = self
+        item.button?.action = #selector(statusItemClicked(_:))
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        popover.behavior = .transient // se ferme quand on clique ailleurs
+        popover.animates = true
+        popover.delegate = self
         statusItem = item
     }
 
@@ -119,32 +113,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.mainMenu = mainMenu
     }
 
-    @objc private func showConfig() {
-        guard let engine else { return }
-        // Une seule fenêtre à la fois ; sinon on en recrée une avec les règles à jour
-        if configWindow == nil {
-            let model = ConfigModel(engine: engine)
-            let window = NSWindow(contentViewController: NSHostingController(rootView: ConfigView(model: model)))
-            window.title = "Configuration"
-            window.styleMask = [.titled, .closable, .resizable]
-            window.isReleasedWhenClosed = false
-            window.delegate = self
-            configWindow = window
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            showContextMenu()
+        } else if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            showPopover(from: sender)
         }
-        // L'appli n'a pas d'icône Dock : on l'active à la main pour que la fenêtre prenne le focus
+    }
+
+    // Un panneau neuf à chaque ouverture : il reflète toujours les règles enregistrées
+    private func showPopover(from button: NSStatusBarButton) {
+        guard let engine else { return }
+        let view = PopoverView(model: ConfigModel(engine: engine),
+                               close: { [weak self] in self?.popover.performClose(nil) })
+        popover.contentViewController = NSHostingController(rootView: view)
+        // L'appli n'a pas d'icône Dock : on l'active à la main pour que les champs prennent le focus
         NSApp.activate(ignoringOtherApps: true)
-        configWindow?.makeKeyAndOrderFront(nil)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
-    func windowWillClose(_ notification: Notification) {
+    private func showContextMenu() {
+        let menu = NSMenu()
+        let quit = NSMenuItem(title: "Quitter", action: #selector(quit), keyEquivalent: "q")
+        quit.target = self
+        menu.addItem(quit)
+        // Le menu n'est attaché que le temps du clic, sinon il remplacerait le panneau
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
+        statusItem?.menu = nil
+    }
+
+    func popoverDidClose(_ notification: Notification) {
         engine?.cancelCapture() // sinon la prochaine touche serait avalée
-        configWindow = nil
-    }
-
-    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
-        let enable = !isLaunchAtLoginEnabled()
-        setLaunchAtLogin(enable)
-        sender.state = isLaunchAtLoginEnabled() ? .on : .off
     }
 
     @objc private func quit() {
