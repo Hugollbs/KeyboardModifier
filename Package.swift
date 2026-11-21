@@ -5,7 +5,8 @@ let package = Package(
     name: "KeyboardModifier",
     platforms: [.macOS(.v13)],
     targets: [
-        .executableTarget(name: "KeyboardModifier")
+        .executableTarget(name: "KeyboardModifier"),
+        .testTarget(name: "KeyboardModifierTests", dependencies: ["KeyboardModifier"]),
     ],
     swiftLanguageModes: [.v6]
 )
