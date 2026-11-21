@@ -1,18 +1,24 @@
 import Foundation
 
 func run(_ action: Action) {
-    let process = Process()
+    var command: [String]
     switch action.type {
     case "app":
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", action.value]
+        command = ["/usr/bin/open", "-a", action.value]
     case "shell":
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-c", action.value]
+        command = ["/bin/zsh", "-c", action.value]
     default:
         print("Type d'action inconnu : \(action.type)")
         return
     }
+    // Sous sudo, on lance l'action avec les droits de l'utilisateur, jamais en root
+    if let user = sudoUser {
+        command = ["/usr/bin/sudo", "-u", user] + command
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: command[0])
+    process.arguments = Array(command.dropFirst())
     do {
         try process.run() // ne bloque pas : on n'attend pas la fin
     } catch {
