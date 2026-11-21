@@ -2,6 +2,10 @@
 
 # KeyboardModifier
 
+[![CI](https://github.com/Hugollbs/KeyboardModifier/actions/workflows/ci.yml/badge.svg)](https://github.com/Hugollbs/KeyboardModifier/actions/workflows/ci.yml) [![Licence MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
+🇬🇧 [English version](README.en.md)
+
 Application macOS de barre de menus qui transforme un **clavier externe** en pupitre de raccourcis : chaque touche peut ouvrir une application ou lancer une commande terminal.
 
 - Les règles ne s'appliquent qu'au clavier choisi : le clavier du Mac n'est jamais touché.
@@ -38,6 +42,7 @@ Clique sur l'icône clavier dans la barre de menus :
 | Entrée du menu | Rôle |
 | --- | --- |
 | Configurer… | Ouvre la fenêtre de configuration |
+| Rendre le clavier à macOS | Sortie de secours : réactive le clavier sans quitter l'appli (le même item le reprend ensuite) |
 | Lancer à l'ouverture de session | Démarre l'appli à chaque connexion (garde l'appli à un emplacement stable, par exemple `/Applications`) |
 | Quitter | Arrête l'appli et rend le clavier à macOS |
 
@@ -76,26 +81,59 @@ Les règles sont enregistrées dans `~/.config/keyboardmodifier/config.json`. Tu
 ## Comment ça marche
 
 - **Lecture des touches** : `IOHIDManager` (IOKit) écoute uniquement le clavier choisi, repéré par son `vendorID` / `productID`, et reçoit chaque appui sans latence.
-- **Désactivation pour macOS** : `hidutil` remplace toutes les touches de ce clavier par « rien » (`UserKeyMapping`). Les touches sont rendues à la fermeture de l'appli.
+- **Désactivation pour macOS** : `hidutil` remplace toutes les touches de ce clavier par « rien » (`UserKeyMapping`).
 - **Actions** : `open -a` pour les applications, `/bin/zsh -c` pour les commandes, lancées sans bloquer l'écoute.
+
+## Architecture
+
+`Engine` (`@MainActor`) orchestre le tout et ne parle au système qu'à travers trois protocoles, remplacés par des faux dans les tests :
+
+| Protocole | Rôle | Implémentation réelle |
+| --- | --- | --- |
+| `HIDSource` | reçoit les événements du clavier ciblé | `IOKitHIDSource` (`IOHIDManager`) |
+| `KeyMappingController` | désactive / réactive les touches pour macOS | `HidutilMapping` (`hidutil`) |
+| `DisabledKeyboardStore` | mémorise sur disque le clavier désactivé | `FileDisabledKeyboardStore` (`state.json`) |
+
+La décision « cet événement est-il l'appui d'une vraie touche ? » est une fonction pure (`pressedKey`, dans `KeyFilter.swift`). Les erreurs sont typées (`EngineError`) et les messages vont dans `os.Logger` (Console.app, sous-système `com.hugollbs.keyboardmodifier`).
+
+### Restauration du clavier
+
+Un clavier désactivé doit toujours pouvoir être rendu :
+
+- à l'arrêt normal, par SIGINT / SIGTERM ou « Quitter » (`applicationWillTerminate`), et par `deinit` d'`Engine` en dernier filet ;
+- après un arrêt brutal (`kill -9`, plantage) : le clavier désactivé est noté dans `~/.config/keyboardmodifier/state.json` **avant** la désactivation, et l'appli restaure ce clavier au lancement suivant ;
+- à la demande, avec « Rendre le clavier à macOS » dans le menu ;
+- l'appli refuse de désactiver un clavier si c'est le seul détecté (le Mac resterait sans clavier).
+
+## Sécurité
+
+`config.json` contient des commandes exécutées par `zsh` : quiconque peut l'écrire peut exécuter du code avec tes droits. L'appli le crée donc en permissions **600** (et son dossier en 700), et resserre celles d'un fichier existant au chargement. Ne mets dans ce fichier que des commandes de confiance. `hidutil` est appelé avec un tableau d'arguments (aucun shell), et les identifiants du clavier sont validés avant usage.
 
 ## Dépannage
 
 - **Rien ne se passe** : vérifie que KeyboardModifier est coché dans Surveillance de l'entrée.
-- **Le clavier reste désactivé après un plantage** (ou un `kill -9`) : relance puis quitte l'appli, ou exécute, avec tes identifiants de clavier :
+- **Le clavier reste désactivé après un plantage** : relance l'appli, elle le restaure automatiquement. Sinon, ou si l'appli ne démarre plus, exécute avec tes identifiants de clavier :
   ```bash
   hidutil property --matching '{"VendorID":1008,"ProductID":12362}' --set '{"UserKeyMapping":[]}'
   ```
   Un redémarrage rend aussi les touches.
-- **Arrêter l'appli** : utilise « Quitter » avec le clavier du Mac, car le clavier choisi est désactivé tant que l'appli tourne.
+- **Arrêter l'appli** : utilise « Quitter » ou « Rendre le clavier à macOS » avec le clavier du Mac ou la souris, car le clavier choisi est désactivé tant que l'appli le contrôle.
+- **Message d'erreur dans une alerte** : les détails sont dans Console.app (filtre : `com.hugollbs.keyboardmodifier`).
 
 ## Développement
 
 ```bash
 swift build          # compilation de développement
+swift test           # tests unitaires (XCTest)
 swift run            # lance l'appli depuis le terminal
 ./scripts/make-app.sh    # construit l'appli .app signée (ad hoc)
 swiftc scripts/make-icon.swift -o /tmp/make-icon && /tmp/make-icon   # régénère l'icône
 ```
 
-Les sources sont dans `Sources/KeyboardModifier/` : `Engine.swift` (écoute et actions), `Config.swift` (fichier JSON), `ConfigView.swift` (fenêtre), `AppDelegate.swift` (barre de menus).
+L'intégration continue (GitHub Actions) lance `swift build` et `swift test` à chaque push.
+
+Les sources sont dans `Sources/KeyboardModifier/` : `Engine.swift` (orchestration), `Protocols.swift`, `IOKitHIDSource.swift`, `Remap.swift` (hidutil), `State.swift`, `Config.swift` (fichier JSON), `ConfigView.swift` (fenêtre), `AppDelegate.swift` (barre de menus). Les tests sont dans `Tests/KeyboardModifierTests/`.
+
+## Licence
+
+[MIT](LICENSE)
