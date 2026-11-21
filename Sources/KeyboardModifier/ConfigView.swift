@@ -66,6 +66,9 @@ struct ConfigView: View {
                         .frame(width: 140)
                         TextField(row.type == "app" ? "Nom de l'app (ex : Safari)" : "Commande (ex : say bonjour)",
                                   text: $row.value)
+                        if row.type == "app" {
+                            AppPicker(selection: $row.value)
+                        }
                         Button { model.delete(row.id) } label: { Image(systemName: "trash") }
                             .buttonStyle(.borderless)
                     }
@@ -89,5 +92,34 @@ struct ConfigView: View {
         }
         .padding()
         .frame(minWidth: 560, minHeight: 320)
+    }
+}
+// Bouton qui ouvre la liste des applications installées, avec une recherche
+struct AppPicker: View {
+    @Binding var selection: String
+    @State private var isOpen = false
+    @State private var search = ""
+
+    private var filtered: [String] {
+        search.isEmpty ? installedApps : installedApps.filter { $0.localizedCaseInsensitiveContains(search) }
+    }
+
+    var body: some View {
+        Button { isOpen = true } label: { Image(systemName: "list.bullet") }
+            .help("Choisir parmi les applications installées")
+            .popover(isPresented: $isOpen) {
+                VStack {
+                    TextField("Rechercher…", text: $search)
+                    List(filtered, id: \.self) { name in
+                        Button(name) {
+                            selection = name
+                            isOpen = false
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+                .frame(width: 260, height: 320)
+            }
     }
 }
