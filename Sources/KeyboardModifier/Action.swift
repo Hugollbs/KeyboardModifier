@@ -1,7 +1,7 @@
 import Foundation
 
 func run(_ action: Action) {
-    var command: [String]
+    let command: [String]
     switch action.type {
     case "app":
         command = ["/usr/bin/open", "-a", action.value]
@@ -10,10 +10,6 @@ func run(_ action: Action) {
     default:
         print("Type d'action inconnu : \(action.type)")
         return
-    }
-    // Sous sudo, on lance l'action avec les droits de l'utilisateur, jamais en root
-    if let user = sudoUser {
-        command = ["/usr/bin/sudo", "-u", user] + command
     }
 
     let process = Process()
