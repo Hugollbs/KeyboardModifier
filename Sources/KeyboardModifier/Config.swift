@@ -41,3 +41,14 @@ func loadConfig() -> Config {
         exit(1)
     }
 }
+
+func saveConfig(_ config: Config) {
+    let url = homeDirectory().appendingPathComponent(configPath)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    do {
+        try encoder.encode(config).write(to: url, options: .atomic)
+    } catch {
+        print("Impossible d'écrire la config (\(url.path)) : \(error)")
+    }
+}
