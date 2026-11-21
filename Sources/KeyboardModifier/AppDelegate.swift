@@ -9,8 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         installEditMenu()
         let engine = Engine(config: loadConfig())
-        engine.start()
         self.engine = engine
+        if !engine.start() {
+            showPermissionAlert()
+            return
+        }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "KeyboardModifier")
@@ -34,6 +37,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Appelé aussi à la sortie par Ctrl+C : on rend les touches à macOS
     func applicationWillTerminate(_ notification: Notification) {
         engine?.stop()
+    }
+
+    // Sans fenêtre ni terminal, c'est le seul moyen de dire pourquoi l'appli ne fait rien
+    private func showPermissionAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Autorisation requise"
+        alert.informativeText = "Autorise KeyboardModifier dans Réglages Système > Confidentialité et sécurité > Surveillance de l'entrée, puis relance l'appli."
+        alert.addButton(withTitle: "Ouvrir les réglages")
+        alert.addButton(withTitle: "Quitter")
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+            NSWorkspace.shared.open(url)
+        }
+        NSApp.terminate(nil)
     }
 
     // Sans icône Dock, l'appli n'a pas de menu Édition : ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z

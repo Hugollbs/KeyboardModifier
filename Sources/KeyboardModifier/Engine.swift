@@ -14,9 +14,11 @@ final class Engine {
         for rule in config.rules { actions[rule.key] = rule.action }
     }
 
-    func start() {
+    // false si macOS refuse l'accès au clavier (autorisation manquante)
+    @discardableResult
+    func start() -> Bool {
         // Aucun clavier choisi : rien à écouter, rien à désactiver
-        guard let keyboard = config.keyboard else { return }
+        guard let keyboard = config.keyboard else { return true }
         // On ne voit que le clavier ciblé : le clavier du Mac n'est jamais touché
         let matching: [String: Int] = [
             kIOHIDDeviceUsagePageKey: 0x01,
@@ -40,10 +42,11 @@ final class Engine {
 
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard result == kIOReturnSuccess else {
-            print("Ouverture impossible. Autorise l'appli dans Réglages Système > Confidentialité > Surveillance de l'entrée.")
-            exit(1)
+            print("Ouverture du clavier impossible : \(String(result, radix: 16))")
+            return false
         }
         setKeysDisabled(true, for: keyboard)
+        return true
     }
 
     func stop() {
