@@ -11,6 +11,7 @@ struct RuleRow: Identifiable {
 final class ConfigModel: ObservableObject {
     @Published var rows: [RuleRow]
     @Published var isCapturing = false
+    @Published var lastAdded: UUID? // pour mettre le curseur dans la ligne qu'on vient d'ajouter
     @Published var keyboard: KeyboardID?
     let keyboards = connectedKeyboards()
     private let engine: Engine
@@ -34,7 +35,9 @@ final class ConfigModel: ObservableObject {
             guard let self else { return }
             self.isCapturing = false
             self.rows.removeAll { $0.key == key } // une touche = une seule action
-            self.rows.append(RuleRow(key: key, type: "app", value: ""))
+            let row = RuleRow(key: key, type: "app", value: "")
+            self.rows.append(row)
+            self.lastAdded = row.id
         }
     }
 
@@ -59,6 +62,7 @@ final class ConfigModel: ObservableObject {
 
 struct ConfigView: View {
     @ObservedObject var model: ConfigModel
+    @FocusState private var focusedRow: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -70,22 +74,32 @@ struct ConfigView: View {
             }
             List {
                 ForEach($model.rows) { $row in
-                    HStack {
-                        Text(keyName(row.key))
-                            .frame(width: 100, alignment: .leading)
-                        Picker("", selection: $row.type) {
-                            Text("Application").tag("app")
-                            Text("Commande").tag("shell")
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(keyName(row.key))
+                                .frame(width: 100, alignment: .leading)
+                            Picker("", selection: $row.type) {
+                                Text("Application").tag("app")
+                                Text("Commande").tag("shell")
+                            }
+                            .labelsHidden()
+                            .frame(width: 140)
+                            .onChange(of: row.type) { type in
+                                if type == "app" { focusedRow = row.id }
+                            }
+                            TextField(row.type == "app" ? "Nom de l'app (ex : Safari)" : "Commande (ex : say bonjour)",
+                                      text: $row.value)
+                                .focused($focusedRow, equals: row.id)
+                            Button { model.delete(row.id) } label: { Image(systemName: "trash") }
+                                .buttonStyle(.borderless)
                         }
-                        .labelsHidden()
-                        .frame(width: 140)
-                        TextField(row.type == "app" ? "Nom de l'app (ex : Safari)" : "Commande (ex : say bonjour)",
-                                  text: $row.value)
-                        if row.type == "app" {
-                            AppPicker(selection: $row.value)
+                        // Les suggestions s'ouvrent sous le champ tant qu'on y écrit
+                        if row.type == "app" && focusedRow == row.id {
+                            AppSuggestions(search: row.value) { name in
+                                $row.value.wrappedValue = name
+                                focusedRow = nil
+                            }
                         }
-                        Button { model.delete(row.id) } label: { Image(systemName: "trash") }
-                            .buttonStyle(.borderless)
                     }
                 }
             }
@@ -107,34 +121,49 @@ struct ConfigView: View {
         }
         .padding()
         .frame(minWidth: 560, minHeight: 320)
+        .onChange(of: model.lastAdded) { id in focusedRow = id }
     }
 }
-// Bouton qui ouvre la liste des applications installées, avec une recherche
-struct AppPicker: View {
-    @Binding var selection: String
-    @State private var isOpen = false
-    @State private var search = ""
+// Liste des applications dont le nom contient le texte tapé (toutes si le champ est vide)
+struct AppSuggestions: View {
+    let search: String
+    let onPick: (String) -> Void
 
-    private var filtered: [String] {
-        search.isEmpty ? installedApps : installedApps.filter { $0.localizedCaseInsensitiveContains(search) }
+    private static let rowHeight: CGFloat = 24
+    private static let maxVisibleRows: CGFloat = 6
+
+    // Les noms qui commencent par le texte tapé passent en premier
+    private var matches: [String] {
+        guard !search.isEmpty else { return installedApps }
+        let found = installedApps.filter { $0.localizedCaseInsensitiveContains(search) }
+        let starting = found.filter { $0.range(of: search, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) != nil }
+        return starting + found.filter { !starting.contains($0) }
+    }
+
+    // Inutile de proposer l'appli qu'on vient de choisir
+    private var isAlreadyChosen: Bool {
+        matches.count == 1 && matches[0].caseInsensitiveCompare(search) == .orderedSame
     }
 
     var body: some View {
-        Button { isOpen = true } label: { Image(systemName: "list.bullet") }
-            .help("Choisir parmi les applications installées")
-            .popover(isPresented: $isOpen) {
-                VStack {
-                    TextField("Rechercher…", text: $search)
-                    List(filtered, id: \.self) { name in
-                        Button(name) {
-                            selection = name
-                            isOpen = false
+        if !matches.isEmpty && !isAlreadyChosen {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(matches, id: \.self) { name in
+                        Button { onPick(name) } label: {
+                            Text(name)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 8)
+                                .frame(height: Self.rowHeight)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding()
-                .frame(width: 260, height: 320)
             }
+            .frame(height: min(CGFloat(matches.count), Self.maxVisibleRows) * Self.rowHeight)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.4)))
+        }
     }
 }
