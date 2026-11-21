@@ -43,12 +43,12 @@ Clique sur l'icône clavier dans la barre de menus :
 
 ### La fenêtre de configuration
 
-![Fenêtre de configuration](docs/config-window.png)
+![Fenêtre de configuration](docs/app-window.png)
 
 1. **Clavier** : choisis le clavier externe à utiliser (le clavier intégré du Mac n'est pas proposé). Le changement est immédiat.
 2. **Ajouter** : clique sur le bouton, puis appuie sur une touche du clavier externe. Une ligne apparaît pour cette touche.
 
-   ![Capture d'une touche](docs/config-capture.png)
+   ![Capture d'une touche](docs/app-capture.png)
 
 3. Choisis le type d'action :
    - **Application** : clique dans le champ, la liste des applications installées s'ouvre sous le champ (elle peut dépasser de la fenêtre) et se filtre pendant que tu tapes. Choisis un nom, avec la souris ou avec les flèches puis Entrée. Le champ est alors remplacé par le nom de l'appli et son **icône** ; un clic sur le nom permet de changer d'appli.
