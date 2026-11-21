@@ -11,11 +11,20 @@ struct RuleRow: Identifiable {
 final class ConfigModel: ObservableObject {
     @Published var rows: [RuleRow]
     @Published var isCapturing = false
+    @Published var keyboard: KeyboardID?
+    let keyboards = connectedKeyboards()
     private let engine: Engine
 
     init(engine: Engine) {
         self.engine = engine
+        keyboard = engine.keyboard
         rows = engine.rules.map { RuleRow(key: $0.key, type: $0.action.type, value: $0.action.value) }
+    }
+
+    // Appliqué tout de suite : l'ancien clavier est rendu à macOS, le nouveau est désactivé
+    func selectKeyboard(_ id: KeyboardID?) {
+        engine.setKeyboard(id)
+        keyboard = id
     }
 
     // Bouton « + » : on attend une touche du clavier externe
@@ -53,6 +62,12 @@ struct ConfigView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Picker("Clavier", selection: Binding(get: { model.keyboard }, set: { model.selectKeyboard($0) })) {
+                Text("Aucun").tag(KeyboardID?.none)
+                ForEach(model.keyboards, id: \.id) { keyboard in
+                    Text(keyboard.name).tag(KeyboardID?.some(keyboard.id))
+                }
+            }
             List {
                 ForEach($model.rows) { $row in
                     HStack {
@@ -76,7 +91,7 @@ struct ConfigView: View {
             }
             HStack {
                 Button { model.startCapture() } label: { Label("Ajouter", systemImage: "plus") }
-                    .disabled(model.isCapturing)
+                    .disabled(model.isCapturing || model.keyboard == nil)
                 if model.isCapturing {
                     Text("Appuie sur une touche du clavier externe…")
                         .foregroundStyle(.secondary)
