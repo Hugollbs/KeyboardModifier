@@ -1,14 +1,11 @@
 import Foundation
 
-private let keyboardPage = 0x7_0000_0000
-private let nothing = 0x7_0000_0000     
-
 // Désactive (ou réactive) toutes les touches de CE clavier pour macOS.
 // Notre lecture directe du clavier (IOHIDManager) reçoit quand même les touches.
 func setKeysDisabled(_ disabled: Bool, for keyboard: KeyboardID) {
     let mappings: [[String: Int]] = disabled
-        ? (4...231).map { ["HIDKeyboardModifierMappingSrc": keyboardPage + $0,
-                           "HIDKeyboardModifierMappingDst": nothing] }
+        ? HID.keyUsages.map { ["HIDKeyboardModifierMappingSrc": HID.hidutilKeyboardPageBits + $0,
+                             "HIDKeyboardModifierMappingDst": HID.hidutilNoKey] }
         : []
     let payload: [String: Any] = ["UserKeyMapping": mappings]
     guard let data = try? JSONSerialization.data(withJSONObject: payload),

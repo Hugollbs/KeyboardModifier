@@ -9,7 +9,7 @@ struct ConnectedKeyboard: Hashable {
 // Claviers actuellement branchés, hors clavier intégré du Mac
 func connectedKeyboards() -> [ConnectedKeyboard] {
     let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-    let matching: [String: Int] = [kIOHIDDeviceUsagePageKey: 0x01, kIOHIDDeviceUsageKey: 0x06]
+    let matching: [String: Int] = [kIOHIDDeviceUsagePageKey: HID.genericDesktopPage, kIOHIDDeviceUsageKey: HID.keyboardUsage]
     IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
     guard let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else { return [] }
 

@@ -21,8 +21,8 @@ final class Engine {
         guard let keyboard = config.keyboard else { return true }
         // On ne voit que le clavier ciblé : le clavier du Mac n'est jamais touché
         let matching: [String: Int] = [
-            kIOHIDDeviceUsagePageKey: 0x01,
-            kIOHIDDeviceUsageKey: 0x06,
+            kIOHIDDeviceUsagePageKey: HID.genericDesktopPage,
+            kIOHIDDeviceUsageKey: HID.keyboardUsage,
             kIOHIDVendorIDKey: keyboard.vendorID,
             kIOHIDProductIDKey: keyboard.productID,
         ]
@@ -83,9 +83,9 @@ final class Engine {
     }
     private func handle(_ value: IOHIDValue) {
         let element = IOHIDValueGetElement(value)
-        guard IOHIDElementGetUsagePage(element) == 0x07 else { return }
+        guard IOHIDElementGetUsagePage(element) == HID.keyboardPage else { return }
         let usage = Int(IOHIDElementGetUsage(element))
-        guard (4...231).contains(usage) else { return }
+        guard HID.keyUsages.contains(usage) else { return }
         guard IOHIDValueGetIntegerValue(value) != 0 else { return } // appui seulement
         if let capture = captureHandler {
             captureHandler = nil
