@@ -51,11 +51,11 @@ Clique sur l'icône clavier dans la barre de menus :
    ![Capture d'une touche](docs/config-capture.png)
 
 3. Choisis le type d'action :
-   - **Application** : tape le nom (ex : `Safari`) ou utilise le bouton liste pour choisir parmi les applications installées.
+   - **Application** : clique dans le champ, la liste des applications installées s'ouvre sous le champ (elle peut dépasser de la fenêtre) et se filtre pendant que tu tapes. Choisis un nom, avec la souris ou avec les flèches puis Entrée. Le champ est alors remplacé par le nom de l'appli et son **icône** ; un clic sur le nom permet de changer d'appli.
    - **Commande** : une commande exécutée par `zsh` (ex : `say bonjour`).
 4. **Enregistrer** : les règles sont appliquées tout de suite et la fenêtre se ferme.
 
-> Les captures utilisent des règles de démonstration.
+> Les captures utilisent des règles de démonstration. La liste de complétion, qui est une fenêtre système séparée, n'apparaît pas sur les captures.
 
 ### Fichier de configuration
 
