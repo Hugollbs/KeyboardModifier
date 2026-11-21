@@ -1,19 +1,20 @@
 import AppKit
 import SwiftUI
+import IOKit.hid
+
+private let relaunchFlag = "--relaunched"
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var engine: Engine?
     private var configWindow: NSWindow?
+    private var accessTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installEditMenu()
         let engine = Engine(config: loadConfig())
         self.engine = engine
-        if !engine.start() {
-            showPermissionAlert()
-            return
-        }
+        startEngine(engine)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "KeyboardModifier")
@@ -39,19 +40,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         engine?.stop()
     }
 
+    // Au premier lancement, la fenêtre de macOS demande l'accès ; notre alerte n'est montrée
+    // que si l'accès a été refusé avant. Dans tous les cas on attend l'autorisation,
+    // pour démarrer dès qu'elle est cochée dans les réglages
+    private func startEngine(_ engine: Engine) {
+        let type = kIOHIDRequestTypeListenEvent
+        let before = IOHIDCheckAccess(type)
+        if before == kIOHIDAccessTypeUnknown {
+            _ = IOHIDRequestAccess(type)
+        }
+        if IOHIDCheckAccess(type) == kIOHIDAccessTypeGranted {
+            startOrRelaunch(engine)
+            return
+        }
+        if before != kIOHIDAccessTypeUnknown {
+            showPermissionAlert()
+        }
+        accessTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard IOHIDCheckAccess(type) == kIOHIDAccessTypeGranted else { return }
+            timer.invalidate()
+            self?.startOrRelaunch(engine)
+        }
+    }
+
+    // macOS applique parfois l'autorisation seulement au prochain lancement :
+    // si le démarrage échoue, on se relance une fois automatiquement
+    private func startOrRelaunch(_ engine: Engine) {
+        if engine.start() { return }
+        guard !CommandLine.arguments.contains(relaunchFlag) else {
+            showRestartAlert()
+            return
+        }
+        // Le délai laisse l'ancienne instance quitter (et rendre le clavier) avant la nouvelle
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 1; /usr/bin/open -n \"\(Bundle.main.bundlePath)\" --args \(relaunchFlag)"]
+        try? process.run()
+        NSApp.terminate(nil)
+    }
+
+    private func showRestartAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Impossible d'accéder au clavier"
+        alert.informativeText = "Vérifie que KeyboardModifier est coché dans Surveillance de l'entrée, puis quitte et relance l'appli."
+        alert.runModal()
+    }
+
     // Sans fenêtre ni terminal, c'est le seul moyen de dire pourquoi l'appli ne fait rien
     private func showPermissionAlert() {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Autorisation requise"
-        alert.informativeText = "Autorise KeyboardModifier dans Réglages Système > Confidentialité et sécurité > Surveillance de l'entrée, puis relance l'appli."
+        alert.informativeText = "Autorise KeyboardModifier dans Réglages Système > Confidentialité et sécurité > Surveillance de l'entrée. L'appli démarrera toute seule ensuite."
         alert.addButton(withTitle: "Ouvrir les réglages")
-        alert.addButton(withTitle: "Quitter")
+        alert.addButton(withTitle: "Plus tard")
         if alert.runModal() == .alertFirstButtonReturn,
            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
         }
-        NSApp.terminate(nil)
     }
 
     // Sans icône Dock, l'appli n'a pas de menu Édition : ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z
