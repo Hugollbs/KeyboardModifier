@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var configWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installEditMenu()
         let engine = Engine(config: loadConfig())
         engine.start()
         self.engine = engine
@@ -33,6 +34,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Appelé aussi à la sortie par Ctrl+C : on rend les touches à macOS
     func applicationWillTerminate(_ notification: Notification) {
         engine?.stop()
+    }
+
+    // Sans icône Dock, l'appli n'a pas de menu Édition : ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z
+    // ne marchent pas dans les champs de texte tant qu'on ne le crée pas
+    private func installEditMenu() {
+        let edit = NSMenu(title: "Édition")
+        edit.addItem(withTitle: "Annuler", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Couper", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copier", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Coller", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Tout sélectionner", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        let editItem = NSMenuItem()
+        editItem.submenu = edit
+        let mainMenu = NSMenu()
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
     }
 
     @objc private func showConfig() {
