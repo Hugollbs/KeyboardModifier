@@ -11,11 +11,7 @@ func name(of device: IOHIDDevice) -> String {
     IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Inconnu"
 }
 
-func hex(_ code: IOReturn) -> String {
-    "0x" + String(UInt32(bitPattern: code), radix: 16)
-}
-
-// Appelée à chaque changement d'état d'une touche du clavier capturé
+// Appelée à chaque changement d'état d'une touche du clavier ciblé
 func onKey(_ context: UnsafeMutableRawPointer?, _ result: IOReturn, _ sender: UnsafeMutableRawPointer?, _ value: IOHIDValue) {
     let element = IOHIDValueGetElement(value)
     guard IOHIDElementGetUsagePage(element) == 0x07 else { return }
@@ -26,21 +22,9 @@ func onKey(_ context: UnsafeMutableRawPointer?, _ result: IOReturn, _ sender: Un
     if let action = actions[usage] { run(action) }
 }
 
-// Appelée quand le clavier ciblé est détecté : on le capture lui seul
-func onDevice(_ context: UnsafeMutableRawPointer?, _ result: IOReturn, _ sender: UnsafeMutableRawPointer?, _ device: IOHIDDevice) {
-    let status = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-    guard status == kIOReturnSuccess else {
-        print("Capture de \(name(of: device)) impossible (code \(hex(status)))")
-        return
-    }
-    print("Clavier capturé en exclusivité : \(name(of: device))")
-    IOHIDDeviceRegisterInputValueCallback(device, onKey, nil)
-    IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-}
-
 let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 
-// On ne voit que le clavier ciblé : le clavier du Mac n'est jamais capturé
+// On ne voit que le clavier ciblé : le clavier du Mac n'est jamais touché
 let matching: [String: Int] = [
     kIOHIDDeviceUsagePageKey: 0x01,
     kIOHIDDeviceUsageKey: 0x06,
@@ -48,16 +32,37 @@ let matching: [String: Int] = [
     kIOHIDProductIDKey: config.keyboard.productID,
 ]
 IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
-IOHIDManagerRegisterDeviceMatchingCallback(manager, onDevice, nil)
+
+IOHIDManagerRegisterDeviceMatchingCallback(manager, { _, _, _, device in
+    print("Clavier détecté : \(name(of: device))")
+}, nil)
+IOHIDManagerRegisterInputValueCallback(manager, onKey, nil)
 IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
 
-// Le gestionnaire ne sert qu'à détecter le clavier ; la capture se fait dans onDevice
+// Lecture simple, sans capture exclusive
 let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
 guard result == kIOReturnSuccess else {
-    print("Ouverture impossible (code \(hex(result))). Lance avec sudo.")
+    print("Ouverture impossible. Autorise ton terminal dans Réglages Système > Confidentialité > Surveillance de l'entrée.")
     exit(1)
 }
 
-print("En écoute… (Ctrl+C pour quitter)")
+// Les touches du clavier ciblé n'écrivent plus rien dans macOS
+setKeysDisabled(true, for: config.keyboard)
+
+// À l'arrêt (Ctrl+C ou kill), on rend le clavier à macOS
+func restoreAndQuit() {
+    setKeysDisabled(false, for: config.keyboard)
+    exit(0)
+}
+signal(SIGINT, SIG_IGN)
+signal(SIGTERM, SIG_IGN)
+let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+let sigterm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+sigint.setEventHandler(handler: restoreAndQuit)
+sigterm.setEventHandler(handler: restoreAndQuit)
+sigint.resume()
+sigterm.resume()
+
+print("En écoute… Arrête avec Ctrl+C sur le clavier du Mac.")
 setvbuf(stdout, nil, _IOLBF, 0)
 CFRunLoopRun()
