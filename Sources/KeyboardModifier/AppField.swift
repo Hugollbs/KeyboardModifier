@@ -7,6 +7,7 @@ struct AppField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
     let autofocus: Bool
+    let onChosen: () -> Void // le texte est devenu le nom exact d'une appli
 
     func makeNSView(context: Context) -> CompletingTextField {
         let field = CompletingTextField()
@@ -25,20 +26,42 @@ struct AppField: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, onChosen: onChosen) }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var text: Binding<String>
+        var onChosen: () -> Void
         var didAutofocus = false
         private var isDeleting = false
 
-        init(text: Binding<String>) { self.text = text }
+        init(text: Binding<String>, onChosen: @escaping () -> Void) {
+            self.text = text
+            self.onChosen = onChosen
+        }
+
+        // Un nom d'appli complet et sans suite possible : le choix est fait
+        private func isChosen(_ name: String) -> Bool {
+            appPath(named: name) != nil
+                && installedApps.filter { $0.range(of: name, options: [.anchored, .caseInsensitive]) != nil }.count == 1
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            if isChosen(text.wrappedValue) { onChosen() }
+        }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             text.wrappedValue = field.stringValue
             // Après un effacement on ne rouvre pas la liste, sinon elle gêne la correction
             if isDeleting { isDeleting = false; return }
+            if isChosen(field.stringValue) {
+                // Fermer la liste et quitter le champ, la ligne affichera l'icône de l'appli
+                DispatchQueue.main.async {
+                    field.window?.makeFirstResponder(nil)
+                    self.onChosen()
+                }
+                return
+            }
             (field.currentEditor() as? NSTextView)?.complete(nil)
         }
 

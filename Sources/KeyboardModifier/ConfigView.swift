@@ -73,26 +73,7 @@ struct ConfigView: View {
             }
             List {
                 ForEach($model.rows) { $row in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(keyName(row.key))
-                                .frame(width: 100, alignment: .leading)
-                            Picker("", selection: $row.type) {
-                                Text("Application").tag("app")
-                                Text("Commande").tag("shell")
-                            }
-                            .labelsHidden()
-                            .frame(width: 140)
-                            if row.type == "app" {
-                                AppField(text: $row.value, placeholder: "Nom de l'app (ex : Safari)",
-                                         autofocus: row.id == model.lastAdded)
-                            } else {
-                                TextField("Commande (ex : say bonjour)", text: $row.value)
-                            }
-                            Button { model.delete(row.id) } label: { Image(systemName: "trash") }
-                                .buttonStyle(.borderless)
-                        }
-                    }
+                    RuleRowView(row: $row, autofocus: row.id == model.lastAdded) { model.delete(row.id) }
                 }
             }
             HStack {
@@ -113,5 +94,49 @@ struct ConfigView: View {
         }
         .padding()
         .frame(minWidth: 560, minHeight: 320)
+    }
+}
+
+// Une ligne : touche, type d'action, puis le champ de saisie ou, une fois l'appli choisie, son nom et son icône
+struct RuleRowView: View {
+    @Binding var row: RuleRow
+    let autofocus: Bool
+    let onDelete: () -> Void
+    @State private var isEditingApp = false
+
+    // L'appli choisie, si le texte est le nom d'une appli installée et qu'on ne le modifie pas
+    private var chosenAppPath: String? {
+        guard row.type == "app", !isEditingApp else { return nil }
+        return appPath(named: row.value)
+    }
+
+    var body: some View {
+        HStack {
+            Text(keyName(row.key))
+                .frame(width: 100, alignment: .leading)
+            Picker("", selection: $row.type) {
+                Text("Application").tag("app")
+                Text("Commande").tag("shell")
+            }
+            .labelsHidden()
+            .frame(width: 140)
+            if let path = chosenAppPath {
+                Text(row.value)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture { isEditingApp = true } // clic : on change d'appli
+                    .help("Cliquer pour changer d'application")
+                Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+                    .resizable()
+                    .frame(width: 28, height: 28)
+            } else if row.type == "app" {
+                AppField(text: $row.value, placeholder: "Nom de l'app (ex : Safari)",
+                         autofocus: autofocus || isEditingApp) { isEditingApp = false }
+            } else {
+                TextField("Commande (ex : say bonjour)", text: $row.value)
+            }
+            Button(action: onDelete) { Image(systemName: "trash") }
+                .buttonStyle(.borderless)
+        }
     }
 }
