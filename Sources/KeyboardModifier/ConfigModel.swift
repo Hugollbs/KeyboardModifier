@@ -49,6 +49,10 @@ final class ConfigModel: ObservableObject {
         isCapturing = false
     }
 
+    func setValue(_ value: String, for id: UUID) {
+        if let index = rows.firstIndex(where: { $0.id == id }) { rows[index].value = value }
+    }
+
     func delete(_ id: UUID) {
         rows.removeAll { $0.id == id }
     }
