@@ -10,19 +10,29 @@ struct KeyboardID: Codable, Hashable {
     }
 }
 
-struct Action: Codable {
+struct Action: Codable, Equatable {
     let type: String   // "app" ou "shell"
     let value: String  // nom de l'app ou commande
 }
 
-struct Rule: Codable {
+struct Rule: Codable, Equatable {
     let key: Int       // code HID de la touche (4 = A)
     let action: Action
 }
 
-struct Config: Codable {
+struct Config: Codable, Equatable {
     let keyboard: KeyboardID? // nil tant qu'aucun clavier n'est choisi
     let rules: [Rule]
+}
+
+// Touches qui apparaissent dans plusieurs règles (sans doublon dans le résultat, triées)
+func findDuplicateKeys(in rules: [Rule]) -> [Int] {
+    var seen = Set<Int>()
+    var duplicates = Set<Int>()
+    for rule in rules where !seen.insert(rule.key).inserted {
+        duplicates.insert(rule.key)
+    }
+    return duplicates.sorted()
 }
 
 func homeDirectory() -> URL {
@@ -31,8 +41,13 @@ func homeDirectory() -> URL {
 
 let configPath = ".config/keyboardmodifier/config.json"
 
-func loadConfig() -> Config {
-    let url = homeDirectory().appendingPathComponent(configPath)
+struct ConfigError: Error, LocalizedError {
+    let path: String
+    let reason: String
+    var errorDescription: String? { "Le fichier de configuration est illisible (\(path)) : \(reason)" }
+}
+
+func loadConfig(at url: URL = homeDirectory().appendingPathComponent(configPath)) throws -> Config {
     // Premier lancement : pas de fichier, on démarre avec une config vide
     guard FileManager.default.fileExists(atPath: url.path) else {
         return Config(keyboard: nil, rules: [])
@@ -44,7 +59,7 @@ func loadConfig() -> Config {
         return try JSONDecoder().decode(Config.self, from: data)
     } catch {
         log.error("Config illisible (\(url.path)) : \(error.localizedDescription)")
-        exit(1)
+        throw ConfigError(path: url.path, reason: error.localizedDescription)
     }
 }
 
@@ -58,8 +73,7 @@ func writePrivateFile(_ data: Data, to url: URL) throws {
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
 }
 
-func saveConfig(_ config: Config) {
-    let url = homeDirectory().appendingPathComponent(configPath)
+func saveConfig(_ config: Config, to url: URL = homeDirectory().appendingPathComponent(configPath)) {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     do {
