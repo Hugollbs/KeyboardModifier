@@ -8,24 +8,36 @@ struct RuleRow: Identifiable {
     var value: String
 }
 
+@MainActor
 final class ConfigModel: ObservableObject {
     @Published var rows: [RuleRow]
     @Published var isCapturing = false
     @Published var lastAdded: UUID? // pour mettre le curseur dans la ligne qu'on vient d'ajouter
     @Published var keyboard: KeyboardID?
+    @Published var errorMessage: String?   // échec du changement de clavier
+    @Published var warningMessage: String?  // touche définie plusieurs fois
     let keyboards = connectedKeyboards()
     private let engine: Engine
 
     init(engine: Engine) {
         self.engine = engine
         keyboard = engine.keyboard
+        let duplicates = engine.duplicateKeys
+        if !duplicates.isEmpty {
+            warningMessage = "Touche définie plusieurs fois : \(duplicates.map(keyName).joined(separator: ", ")). La dernière règle est utilisée."
+        }
         rows = engine.rules.map { RuleRow(key: $0.key, type: $0.action.type, value: $0.action.value) }
     }
 
     // Appliqué tout de suite : l'ancien clavier est rendu à macOS, le nouveau est désactivé
     func selectKeyboard(_ id: KeyboardID?) {
-        engine.setKeyboard(id)
-        keyboard = id
+        do {
+            try engine.setKeyboard(id)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        keyboard = engine.keyboard // l'ancien clavier si le changement a échoué
     }
 
     // Bouton « + » : on attend une touche du clavier externe
@@ -70,6 +82,12 @@ struct ConfigView: View {
                 ForEach(model.keyboards, id: \.id) { keyboard in
                     Text(keyboard.name).tag(KeyboardID?.some(keyboard.id))
                 }
+            }
+            if let message = model.errorMessage {
+                Text(message).foregroundStyle(.red).font(.callout)
+            }
+            if let message = model.warningMessage {
+                Text(message).foregroundStyle(.orange).font(.callout)
             }
             List {
                 ForEach($model.rows) { $row in
