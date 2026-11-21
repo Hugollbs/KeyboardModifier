@@ -9,12 +9,12 @@ final class Engine {
     private let source: HIDSource
     private let mapping: KeyMappingController
     private let store: DisabledKeyboardStore
-    private let runAction: (Action) -> Void
+    private let runAction: @MainActor (Action) -> Void
     // Non nil quand on a désactivé les touches de ce clavier : c'est ce qu'il faudra restaurer
     private var disabledKeyboard: KeyboardID?
 
     init(config: Config, source: HIDSource, mapping: KeyMappingController,
-         store: DisabledKeyboardStore, runAction: @escaping (Action) -> Void) {
+         store: DisabledKeyboardStore, runAction: @escaping @MainActor (Action) -> Void) {
         self.config = config
         self.source = source
         self.mapping = mapping
