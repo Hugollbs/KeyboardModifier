@@ -4,6 +4,7 @@ import IOKit.hid
 
 private let relaunchFlag = "--relaunched"
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var engine: Engine?
@@ -17,8 +18,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installEditMenu()
-        let engine = Engine(config: loadConfig())
+        let config: Config
+        do {
+            config = try loadConfig()
+        } catch {
+            // Sortie normale (code 0), sinon le LaunchAgent relancerait l'appli en boucle
+            showError("Configuration illisible", error)
+            NSApp.terminate(nil)
+            return
+        }
+        let engine = Engine(config: config)
         self.engine = engine
+        engine.restoreLeftoverMapping() // rend le clavier si l'appli précédente a été tuée
         startEngine(engine)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -28,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let configure = NSMenuItem(title: "Configurer…", action: #selector(showConfig), keyEquivalent: ",")
         configure.target = self
         menu.addItem(configure)
+        let release = NSMenuItem(title: "Rendre le clavier à macOS", action: #selector(toggleKeyboardControl(_:)), keyEquivalent: "")
+        release.target = self
+        menu.addItem(release)
         let login = NSMenuItem(title: "Lancer à l'ouverture de session", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
         login.target = self
         login.state = isLaunchAtLoginEnabled() ? .on : .off
@@ -64,14 +78,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         accessTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
             guard IOHIDCheckAccess(type) == kIOHIDAccessTypeGranted else { return }
             timer.invalidate()
-            self?.startOrRelaunch(engine)
+            // Le timer est sur le run loop principal
+            MainActor.assumeIsolated { self?.startOrRelaunch(engine) }
         }
     }
 
     // macOS applique parfois l'autorisation seulement au prochain lancement :
     // si le démarrage échoue, on se relance une fois automatiquement
     private func startOrRelaunch(_ engine: Engine) {
-        if engine.start() { return }
+        do {
+            try engine.start()
+            return
+        } catch let error as EngineError where error.isAccessProblem {
+            log.error("Démarrage impossible : \(error.localizedDescription)")
+        } catch {
+            showError("Le clavier n'a pas pu être désactivé", error)
+            return
+        }
         guard !CommandLine.arguments.contains(relaunchFlag) else {
             showRestartAlert()
             return
@@ -82,6 +105,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         process.arguments = ["-c", "sleep 1; /usr/bin/open -n \"\(Bundle.main.bundlePath)\" --args \(relaunchFlag)"]
         try? process.run()
         NSApp.terminate(nil)
+    }
+
+    private func showError(_ title: String, _ error: Error) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = error.localizedDescription
+        alert.runModal()
     }
 
     private func showRestartAlert() {
@@ -155,6 +186,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let enable = !isLaunchAtLoginEnabled()
         setLaunchAtLogin(enable)
         sender.state = isLaunchAtLoginEnabled() ? .on : .off
+    }
+
+    // Sortie de secours : rend le clavier à macOS sans quitter l'appli, puis le reprend à la demande
+    @objc private func toggleKeyboardControl(_ sender: NSMenuItem) {
+        guard let engine else { return }
+        if engine.isActive {
+            engine.stop()
+            sender.title = "Reprendre le contrôle du clavier"
+        } else {
+            do {
+                try engine.start()
+                sender.title = "Rendre le clavier à macOS"
+            } catch {
+                showError("Le clavier n'a pas pu être désactivé", error)
+            }
+        }
     }
 
     @objc private func quit() {

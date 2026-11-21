@@ -17,7 +17,7 @@ func setLaunchAtLogin(_ enabled: Bool) {
         return
     }
     guard let executable = Bundle.main.executablePath else {
-        print("Chemin de l'exécutable introuvable")
+        log.error("Chemin de l'exécutable introuvable")
         return
     }
     let plist: [String: Any] = [
@@ -32,6 +32,6 @@ func setLaunchAtLogin(_ enabled: Bool) {
         try FileManager.default.createDirectory(at: agentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: agentURL, options: .atomic)
     } catch {
-        print("Impossible d'écrire le LaunchAgent : \(error)")
+        log.error("Impossible d'écrire le LaunchAgent : \(error.localizedDescription)")
     }
 }

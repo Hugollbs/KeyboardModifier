@@ -1,33 +1,48 @@
 import Foundation
 
-private let keyboardPage = 0x7_0000_0000
-private let nothing = 0x7_0000_0000     
-
-// Désactive (ou réactive) toutes les touches de CE clavier pour macOS.
+// Désactive (ou réactive) toutes les touches de CE clavier pour macOS avec hidutil.
 // Notre lecture directe du clavier (IOHIDManager) reçoit quand même les touches.
-func setKeysDisabled(_ disabled: Bool, for keyboard: KeyboardID) {
-    let mappings: [[String: Int]] = disabled
-        ? (4...231).map { ["HIDKeyboardModifierMappingSrc": keyboardPage + $0,
-                           "HIDKeyboardModifierMappingDst": nothing] }
-        : []
-    let payload: [String: Any] = ["UserKeyMapping": mappings]
-    guard let data = try? JSONSerialization.data(withJSONObject: payload),
-          let json = String(data: data, encoding: .utf8) else {
-        print("Impossible de construire le JSON pour hidutil")
-        return
+struct HidutilMapping: KeyMappingController {
+    func disableKeys(of keyboard: KeyboardID) throws {
+        let mappings = HID.keyUsages.map { ["HIDKeyboardModifierMappingSrc": HID.hidutilKeyboardPageBits + $0,
+                                             "HIDKeyboardModifierMappingDst": HID.hidutilNoKey] }
+        try apply(mappings, to: keyboard)
     }
 
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
-    process.arguments = ["property",
-                         "--matching", "{\"VendorID\":\(keyboard.vendorID),\"ProductID\":\(keyboard.productID)}",
-                         "--set", json]
-    process.standardOutput = FileHandle.nullDevice
-    do {
-        try process.run()
+    func restoreKeys(of keyboard: KeyboardID) throws {
+        try apply([], to: keyboard)
+    }
+
+    private func apply(_ mappings: [[String: Int]], to keyboard: KeyboardID) throws {
+        // Les identifiants viennent de config.json : on les valide avant de les passer à hidutil
+        guard keyboard.isValid else { throw EngineError.invalidKeyboard }
+        let matching: [String: Int] = ["VendorID": keyboard.vendorID, "ProductID": keyboard.productID]
+        guard let mappingJSON = jsonString(["UserKeyMapping": mappings]),
+              let matchingJSON = jsonString(matching) else {
+            throw EngineError.mappingFailed("JSON impossible à construire")
+        }
+
+        // Arguments en tableau, sans shell : rien de ce qui vient de la config n'est interprété
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
+        process.arguments = ["property", "--matching", matchingJSON, "--set", mappingJSON]
+        process.standardOutput = FileHandle.nullDevice
+        let errors = Pipe()
+        process.standardError = errors
+        do {
+            try process.run()
+        } catch {
+            throw EngineError.mappingFailed(error.localizedDescription)
+        }
         process.waitUntilExit()
-        if process.terminationStatus != 0 { print("hidutil a échoué (code \(process.terminationStatus))") }
-    } catch {
-        print("Impossible de lancer hidutil : \(error)")
+        guard process.terminationStatus == 0 else {
+            let message = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw EngineError.mappingFailed("code \(process.terminationStatus) \(message)".trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    private func jsonString(_ object: Any) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
