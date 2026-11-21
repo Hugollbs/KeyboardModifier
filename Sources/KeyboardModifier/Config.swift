@@ -1,6 +1,6 @@
 import Foundation
 
-struct KeyboardID: Codable {
+struct KeyboardID: Codable, Hashable {
     let vendorID: Int
     let productID: Int
 }
@@ -16,7 +16,7 @@ struct Rule: Codable {
 }
 
 struct Config: Codable {
-    let keyboard: KeyboardID
+    let keyboard: KeyboardID? // nil tant qu'aucun clavier n'est choisi
     let rules: [Rule]
 }
 
@@ -33,6 +33,10 @@ let configPath = ".config/keyboardmodifier/config.json"
 
 func loadConfig() -> Config {
     let url = homeDirectory().appendingPathComponent(configPath)
+    // Premier lancement : pas de fichier, on démarre avec une config vide
+    guard FileManager.default.fileExists(atPath: url.path) else {
+        return Config(keyboard: nil, rules: [])
+    }
     do {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(Config.self, from: data)

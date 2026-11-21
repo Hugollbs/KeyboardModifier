@@ -6,7 +6,7 @@ final class Engine {
     private var config: Config
     private var captureHandler: ((Int) -> Void)?
     private var actions: [Int: Action] = [:]
-    private let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+    private var manager: IOHIDManager?
 
     init(config: Config) {
         self.config = config
@@ -15,13 +15,18 @@ final class Engine {
     }
 
     func start() {
+        // Aucun clavier choisi : rien à écouter, rien à désactiver
+        guard let keyboard = config.keyboard else { return }
         // On ne voit que le clavier ciblé : le clavier du Mac n'est jamais touché
         let matching: [String: Int] = [
             kIOHIDDeviceUsagePageKey: 0x01,
             kIOHIDDeviceUsageKey: 0x06,
-            kIOHIDVendorIDKey: config.keyboard.vendorID,
-            kIOHIDProductIDKey: config.keyboard.productID,
+            kIOHIDVendorIDKey: keyboard.vendorID,
+            kIOHIDProductIDKey: keyboard.productID,
         ]
+        // Un manager neuf à chaque start() : on peut changer de clavier à chaud
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        self.manager = manager
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
 
         // Le callback est une fonction C : elle ne peut pas capturer self,
@@ -38,15 +43,25 @@ final class Engine {
             print("Ouverture impossible. Autorise l'appli dans Réglages Système > Confidentialité > Surveillance de l'entrée.")
             exit(1)
         }
-        setKeysDisabled(true, for: config.keyboard)
+        setKeysDisabled(true, for: keyboard)
     }
 
     func stop() {
-        setKeysDisabled(false, for: config.keyboard)
-        IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        if let keyboard = config.keyboard { setKeysDisabled(false, for: keyboard) }
+        if let manager {
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
+        manager = nil
     }
     var rules: [Rule] { config.rules }
-    var keyboard: KeyboardID { config.keyboard }
+    var keyboard: KeyboardID? { config.keyboard }
+
+    // Change de clavier ciblé : on rend l'ancien à macOS, puis on écoute le nouveau
+    func setKeyboard(_ keyboard: KeyboardID?) {
+        stop()
+        config = Config(keyboard: keyboard, rules: config.rules)
+        start()
+    }
 
     // Remplace les règles à chaud, sans toucher à l'écoute du clavier
     func updateRules(_ rules: [Rule]) {

@@ -18,6 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let configure = NSMenuItem(title: "Configurer…", action: #selector(showConfig), keyEquivalent: ",")
         configure.target = self
         menu.addItem(configure)
+        let login = NSMenuItem(title: "Lancer à l'ouverture de session", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        login.target = self
+        login.state = isLaunchAtLoginEnabled() ? .on : .off
+        menu.addItem(login)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quitter", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -51,6 +55,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         engine?.cancelCapture() // sinon la prochaine touche serait avalée
         configWindow = nil
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        let enable = !isLaunchAtLoginEnabled()
+        setLaunchAtLogin(enable)
+        sender.state = isLaunchAtLoginEnabled() ? .on : .off
     }
 
     @objc private func quit() {
