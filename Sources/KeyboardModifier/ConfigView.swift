@@ -62,7 +62,6 @@ final class ConfigModel: ObservableObject {
 
 struct ConfigView: View {
     @ObservedObject var model: ConfigModel
-    @FocusState private var focusedRow: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -84,21 +83,14 @@ struct ConfigView: View {
                             }
                             .labelsHidden()
                             .frame(width: 140)
-                            .onChange(of: row.type) { type in
-                                if type == "app" { focusedRow = row.id }
+                            if row.type == "app" {
+                                AppField(text: $row.value, placeholder: "Nom de l'app (ex : Safari)",
+                                         autofocus: row.id == model.lastAdded)
+                            } else {
+                                TextField("Commande (ex : say bonjour)", text: $row.value)
                             }
-                            TextField(row.type == "app" ? "Nom de l'app (ex : Safari)" : "Commande (ex : say bonjour)",
-                                      text: $row.value)
-                                .focused($focusedRow, equals: row.id)
                             Button { model.delete(row.id) } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
-                        }
-                        // Les suggestions s'ouvrent sous le champ tant qu'on y écrit
-                        if row.type == "app" && focusedRow == row.id {
-                            AppSuggestions(search: row.value) { name in
-                                $row.value.wrappedValue = name
-                                focusedRow = nil
-                            }
                         }
                     }
                 }
@@ -121,49 +113,5 @@ struct ConfigView: View {
         }
         .padding()
         .frame(minWidth: 560, minHeight: 320)
-        .onChange(of: model.lastAdded) { id in focusedRow = id }
-    }
-}
-// Liste des applications dont le nom contient le texte tapé (toutes si le champ est vide)
-struct AppSuggestions: View {
-    let search: String
-    let onPick: (String) -> Void
-
-    private static let rowHeight: CGFloat = 24
-    private static let maxVisibleRows: CGFloat = 6
-
-    // Les noms qui commencent par le texte tapé passent en premier
-    private var matches: [String] {
-        guard !search.isEmpty else { return installedApps }
-        let found = installedApps.filter { $0.localizedCaseInsensitiveContains(search) }
-        let starting = found.filter { $0.range(of: search, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) != nil }
-        return starting + found.filter { !starting.contains($0) }
-    }
-
-    // Inutile de proposer l'appli qu'on vient de choisir
-    private var isAlreadyChosen: Bool {
-        matches.count == 1 && matches[0].caseInsensitiveCompare(search) == .orderedSame
-    }
-
-    var body: some View {
-        if !matches.isEmpty && !isAlreadyChosen {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(matches, id: \.self) { name in
-                        Button { onPick(name) } label: {
-                            Text(name)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8)
-                                .frame(height: Self.rowHeight)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .frame(height: min(CGFloat(matches.count), Self.maxVisibleRows) * Self.rowHeight)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.4)))
-        }
     }
 }

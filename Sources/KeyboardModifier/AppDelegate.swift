@@ -8,6 +8,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var engine: Engine?
     private var configWindow: NSWindow?
+    private let appFieldEditor: NSTextView = {
+        let editor = WholeFieldEditor()
+        editor.isFieldEditor = true
+        return editor
+    }()
     private var accessTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -134,6 +139,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // L'appli n'a pas d'icône Dock : on l'active à la main pour que la fenêtre prenne le focus
         NSApp.activate(ignoringOtherApps: true)
         configWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    // Les champs d'application utilisent un éditeur de texte qui complète tout le champ
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
+        client is CompletingTextField ? appFieldEditor : nil
     }
 
     func windowWillClose(_ notification: Notification) {
