@@ -80,8 +80,11 @@ struct ConfigView: View {
                     Button("Annuler") { model.cancelCapture() }
                 }
                 Spacer()
-                Button("Enregistrer") { model.save() }
-                    .keyboardShortcut(.defaultAction)
+                Button("Enregistrer") {
+                    model.save()
+                    NSApp.keyWindow?.close()
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding()
