@@ -6,7 +6,7 @@ final class Engine {
     private var config: Config
     private var captureHandler: ((Int) -> Void)?
     private var actions: [Int: Action] = [:]
-    private let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+    private var manager: IOHIDManager?
 
     init(config: Config) {
         self.config = config
@@ -24,6 +24,9 @@ final class Engine {
             kIOHIDVendorIDKey: keyboard.vendorID,
             kIOHIDProductIDKey: keyboard.productID,
         ]
+        // Un manager neuf à chaque start() : on peut changer de clavier à chaud
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        self.manager = manager
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
 
         // Le callback est une fonction C : elle ne peut pas capturer self,
@@ -45,7 +48,10 @@ final class Engine {
 
     func stop() {
         if let keyboard = config.keyboard { setKeysDisabled(false, for: keyboard) }
-        IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        if let manager {
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
+        manager = nil
     }
     var rules: [Rule] { config.rules }
     var keyboard: KeyboardID? { config.keyboard }
