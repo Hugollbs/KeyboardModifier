@@ -1,6 +1,6 @@
 import Foundation
 
-struct KeyboardID: Codable {
+struct KeyboardID: Codable, Hashable {
     let vendorID: Int
     let productID: Int
 }

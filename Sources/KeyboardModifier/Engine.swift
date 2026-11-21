@@ -56,6 +56,13 @@ final class Engine {
     var rules: [Rule] { config.rules }
     var keyboard: KeyboardID? { config.keyboard }
 
+    // Change de clavier ciblé : on rend l'ancien à macOS, puis on écoute le nouveau
+    func setKeyboard(_ keyboard: KeyboardID?) {
+        stop()
+        config = Config(keyboard: keyboard, rules: config.rules)
+        start()
+    }
+
     // Remplace les règles à chaud, sans toucher à l'écoute du clavier
     func updateRules(_ rules: [Rule]) {
         config = Config(keyboard: config.keyboard, rules: rules)
