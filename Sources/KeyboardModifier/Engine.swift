@@ -15,12 +15,14 @@ final class Engine {
     }
 
     func start() {
+        // Aucun clavier choisi : rien à écouter, rien à désactiver
+        guard let keyboard = config.keyboard else { return }
         // On ne voit que le clavier ciblé : le clavier du Mac n'est jamais touché
         let matching: [String: Int] = [
             kIOHIDDeviceUsagePageKey: 0x01,
             kIOHIDDeviceUsageKey: 0x06,
-            kIOHIDVendorIDKey: config.keyboard.vendorID,
-            kIOHIDProductIDKey: config.keyboard.productID,
+            kIOHIDVendorIDKey: keyboard.vendorID,
+            kIOHIDProductIDKey: keyboard.productID,
         ]
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
 
@@ -38,15 +40,15 @@ final class Engine {
             print("Ouverture impossible. Autorise l'appli dans Réglages Système > Confidentialité > Surveillance de l'entrée.")
             exit(1)
         }
-        setKeysDisabled(true, for: config.keyboard)
+        setKeysDisabled(true, for: keyboard)
     }
 
     func stop() {
-        setKeysDisabled(false, for: config.keyboard)
+        if let keyboard = config.keyboard { setKeysDisabled(false, for: keyboard) }
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     }
     var rules: [Rule] { config.rules }
-    var keyboard: KeyboardID { config.keyboard }
+    var keyboard: KeyboardID? { config.keyboard }
 
     // Remplace les règles à chaud, sans toucher à l'écoute du clavier
     func updateRules(_ rules: [Rule]) {
