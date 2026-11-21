@@ -12,6 +12,7 @@ final class ConfigModel: ObservableObject {
     @Published var rows: [RuleRow]
     @Published var isCapturing = false
     @Published var keyboard: KeyboardID?
+    @Published var launchAtLogin = isLaunchAtLoginEnabled()
     let keyboards = connectedKeyboards()
     private let engine: Engine
 
@@ -19,6 +20,11 @@ final class ConfigModel: ObservableObject {
         self.engine = engine
         keyboard = engine.keyboard
         rows = engine.rules.map { RuleRow(key: $0.key, type: $0.action.type, value: $0.action.value) }
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        KeyboardModifier.setLaunchAtLogin(enabled)
+        launchAtLogin = isLaunchAtLoginEnabled()
     }
 
     // Appliqué tout de suite : l'ancien clavier est rendu à macOS, le nouveau est désactivé
