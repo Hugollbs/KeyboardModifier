@@ -20,10 +20,19 @@ struct Config: Codable {
     let rules: [Rule]
 }
 
+let sudoUser: String? = getuid() == 0 ? ProcessInfo.processInfo.environment["SUDO_USER"] : nil
+
+func homeDirectory() -> URL {
+    if let user = sudoUser, let path = NSHomeDirectoryForUser(user) {
+        return URL(fileURLWithPath: path)
+    }
+    return FileManager.default.homeDirectoryForCurrentUser
+}
+
 let configPath = ".config/keyboardmodifier/config.json"
 
 func loadConfig() -> Config {
-    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(configPath)
+    let url = homeDirectory().appendingPathComponent(configPath)
     do {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(Config.self, from: data)
