@@ -1,11 +1,13 @@
 import Foundation
-import IOKit.hid
+@preconcurrency import IOKit.hid
 
 // Vraie source de touches : un IOHIDManager qui ne voit que le clavier ciblé
 @MainActor
 final class IOKitHIDSource: HIDSource {
     var onKeyEvent: ((_ page: Int, _ usage: Int, _ value: Int) -> Void)?
-    private var manager: IOHIDManager?
+    // nonisolated(unsafe) : deinit n'est pas isolé au thread principal mais doit pouvoir lire le manager ;
+    // c'est sûr car au moment du deinit plus personne d'autre n'a de référence sur cet objet
+    nonisolated(unsafe) private var manager: IOHIDManager?
 
     func start(keyboard: KeyboardID) throws {
         stop() // jamais deux managers en même temps

@@ -7,5 +7,5 @@ let package = Package(
     targets: [
         .executableTarget(name: "KeyboardModifier")
     ],
-    swiftLanguageModes: [.v5]
+    swiftLanguageModes: [.v6]
 )
