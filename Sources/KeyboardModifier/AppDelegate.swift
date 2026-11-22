@@ -31,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.engine = engine
         engine.restoreLeftoverMapping() // rend le clavier si l'appli précédente a été tuée
         startEngine(engine)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "KeyboardModifier")
@@ -200,6 +202,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 sender.title = "Rendre le clavier à macOS"
             } catch {
                 showError("Le clavier n'a pas pu être désactivé", error)
+            }
+        }
+    }
+
+    // Après une veille, macOS recrée le clavier et le mapping hidutil est perdu : les touches
+    // s'écrivent de nouveau. On le ré-applique, avec un délai pour laisser le clavier réapparaître.
+    @objc private func didWake() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let engine = self?.engine, engine.isActive else { return } // pas si rendu à macOS
+                do {
+                    try engine.start()
+                } catch {
+                    log.error("Redémarrage après veille impossible : \(error.localizedDescription)")
+                }
             }
         }
     }
