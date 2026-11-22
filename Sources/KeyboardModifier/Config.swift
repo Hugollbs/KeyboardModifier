@@ -20,9 +20,50 @@ struct Rule: Codable, Equatable {
     let action: Action
 }
 
+// Un clavier connu de l'appli, avec ses propres raccourcis
+struct KeyboardConfig: Codable, Equatable {
+    let id: KeyboardID
+    var name: String
+    var enabled: Bool  // faux : le clavier reste normal pour macOS
+    var rules: [Rule]
+}
+
 struct Config: Codable, Equatable {
-    let keyboard: KeyboardID? // nil tant qu'aucun clavier n'est choisi
-    let rules: [Rule]
+    var keyboards: [KeyboardConfig]
+
+    private enum CodingKeys: String, CodingKey {
+        case keyboards
+        case keyboard, rules // ancien format (v1.x) : un seul clavier et ses règles
+    }
+
+    init(keyboards: [KeyboardConfig]) {
+        self.keyboards = keyboards
+    }
+
+    // Lit le nouveau format, ou convertit l'ancien : le clavier choisi devient un clavier actif
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.keyboards) {
+            keyboards = try container.decode([KeyboardConfig].self, forKey: .keyboards)
+            return
+        }
+        let oldKeyboard = try container.decodeIfPresent(KeyboardID.self, forKey: .keyboard)
+        let oldRules = try container.decodeIfPresent([Rule].self, forKey: .rules) ?? []
+        guard let oldKeyboard else {
+            if !oldRules.isEmpty { log.warning("Ancienne config sans clavier : \(oldRules.count) règle(s) ignorée(s)") }
+            keyboards = []
+            return
+        }
+        // Le vrai nom sera mis à jour dès que le clavier est branché
+        let name = "Clavier \(oldKeyboard.vendorID):\(oldKeyboard.productID)"
+        keyboards = [KeyboardConfig(id: oldKeyboard, name: name, enabled: true, rules: oldRules)]
+    }
+
+    // On n'écrit que le nouveau format
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(keyboards, forKey: .keyboards)
+    }
 }
 
 // Touches qui apparaissent dans plusieurs règles (sans doublon dans le résultat, triées)
@@ -50,7 +91,7 @@ struct ConfigError: Error, LocalizedError {
 func loadConfig(at url: URL = homeDirectory().appendingPathComponent(configPath)) throws -> Config {
     // Premier lancement : pas de fichier, on démarre avec une config vide
     guard FileManager.default.fileExists(atPath: url.path) else {
-        return Config(keyboard: nil, rules: [])
+        return Config(keyboards: [])
     }
     do {
         // Un fichier créé par une ancienne version peut être lisible par d'autres : on le resserre

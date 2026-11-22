@@ -7,7 +7,7 @@ private let relaunchFlag = "--relaunched"
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
-    private var engine: Engine?
+    private var manager: KeyboardManager?
     private var configWindow: NSWindow?
     private let appFieldEditor: NSTextView = {
         let editor = WholeFieldEditor()
@@ -27,10 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApp.terminate(nil)
             return
         }
-        let engine = Engine(config: config)
-        self.engine = engine
-        engine.restoreLeftoverMapping() // rend le clavier si l'appli précédente a été tuée
-        startEngine(engine)
+        let manager = KeyboardManager(config: config)
+        self.manager = manager
+        manager.restoreLeftoverMappings() // rend les claviers si l'appli précédente a été tuée
+        startEngine(manager)
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
 
@@ -58,20 +58,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // Appelé aussi à la sortie par Ctrl+C : on rend les touches à macOS
     func applicationWillTerminate(_ notification: Notification) {
-        engine?.stop()
+        manager?.stop()
     }
 
     // Au premier lancement, la fenêtre de macOS demande l'accès ; notre alerte n'est montrée
     // que si l'accès a été refusé avant. Dans tous les cas on attend l'autorisation,
     // pour démarrer dès qu'elle est cochée dans les réglages
-    private func startEngine(_ engine: Engine) {
+    private func startEngine(_ manager: KeyboardManager) {
         let type = kIOHIDRequestTypeListenEvent
         let before = IOHIDCheckAccess(type)
         if before == kIOHIDAccessTypeUnknown {
             _ = IOHIDRequestAccess(type)
         }
         if IOHIDCheckAccess(type) == kIOHIDAccessTypeGranted {
-            startOrRelaunch(engine)
+            startOrRelaunch(manager)
             return
         }
         if before != kIOHIDAccessTypeUnknown {
@@ -81,15 +81,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard IOHIDCheckAccess(type) == kIOHIDAccessTypeGranted else { return }
             timer.invalidate()
             // Le timer est sur le run loop principal
-            MainActor.assumeIsolated { self?.startOrRelaunch(engine) }
+            MainActor.assumeIsolated { self?.startOrRelaunch(manager) }
         }
     }
 
     // macOS applique parfois l'autorisation seulement au prochain lancement :
     // si le démarrage échoue, on se relance une fois automatiquement
-    private func startOrRelaunch(_ engine: Engine) {
+    private func startOrRelaunch(_ manager: KeyboardManager) {
         do {
-            try engine.start()
+            try manager.start()
             return
         } catch let error as EngineError where error.isAccessProblem {
             log.error("Démarrage impossible : \(error.localizedDescription)")
@@ -158,10 +158,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func showConfig() {
-        guard let engine else { return }
+        guard let manager else { return }
         // Une seule fenêtre à la fois ; sinon on en recrée une avec les règles à jour
         if configWindow == nil {
-            let model = ConfigModel(engine: engine)
+            let model = ConfigModel(manager: manager)
             let window = NSWindow(contentViewController: NSHostingController(rootView: ConfigView(model: model)))
             window.title = "Configuration"
             window.styleMask = [.titled, .closable, .resizable]
@@ -180,7 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        engine?.cancelCapture() // sinon la prochaine touche serait avalée
+        manager?.cancelCapture() // sinon la prochaine touche serait avalée
         configWindow = nil
     }
 
@@ -192,13 +192,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // Sortie de secours : rend le clavier à macOS sans quitter l'appli, puis le reprend à la demande
     @objc private func toggleKeyboardControl(_ sender: NSMenuItem) {
-        guard let engine else { return }
-        if engine.isActive {
-            engine.stop()
+        guard let manager else { return }
+        if manager.isActive {
+            manager.stop()
             sender.title = "Reprendre le contrôle du clavier"
         } else {
             do {
-                try engine.start()
+                try manager.start()
                 sender.title = "Rendre le clavier à macOS"
             } catch {
                 showError("Le clavier n'a pas pu être désactivé", error)
@@ -211,12 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func didWake() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             MainActor.assumeIsolated {
-                guard let engine = self?.engine, engine.isActive else { return } // pas si rendu à macOS
-                do {
-                    try engine.start()
-                } catch {
-                    log.error("Redémarrage après veille impossible : \(error.localizedDescription)")
-                }
+                self?.manager?.restartRunning() // seulement les claviers pris en charge, pas ceux rendus à macOS
             }
         }
     }

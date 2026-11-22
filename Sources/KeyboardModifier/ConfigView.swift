@@ -8,42 +8,76 @@ struct RuleRow: Identifiable {
     var value: String
 }
 
+// Un clavier de la colonne de droite : branché maintenant, ou configuré mais débranché
+struct KeyboardEntry: Identifiable {
+    let id: KeyboardID
+    let name: String
+    let isConnected: Bool
+}
+
 @MainActor
 final class ConfigModel: ObservableObject {
-    @Published var rows: [RuleRow]
+    @Published var entries: [KeyboardEntry]
+    @Published var selected: KeyboardID?
+    @Published private var rowsByKeyboard: [KeyboardID: [RuleRow]] = [:] // modifs non enregistrées comprises
+    @Published private(set) var running: Set<KeyboardID> = []
     @Published var isCapturing = false
     @Published var lastAdded: UUID? // pour mettre le curseur dans la ligne qu'on vient d'ajouter
-    @Published var keyboard: KeyboardID?
-    @Published var errorMessage: String?   // échec du changement de clavier
+    @Published var errorMessage: String?   // échec d'activation d'un clavier
     @Published var warningMessage: String?  // touche définie plusieurs fois
-    let keyboards = connectedKeyboards()
-    private let engine: Engine
+    private let manager: KeyboardManager
 
-    init(engine: Engine) {
-        self.engine = engine
-        keyboard = engine.keyboard
-        let duplicates = engine.duplicateKeys
-        if !duplicates.isEmpty {
-            warningMessage = "Touche définie plusieurs fois : \(duplicates.map(keyName).joined(separator: ", ")). La dernière règle est utilisée."
+    init(manager: KeyboardManager) {
+        self.manager = manager
+        let connected = connectedKeyboards()
+        var found = connected.map { KeyboardEntry(id: $0.id, name: $0.name, isConnected: true) }
+        for known in manager.keyboards where !connected.contains(where: { $0.id == known.id }) {
+            found.append(KeyboardEntry(id: known.id, name: known.name, isConnected: false))
         }
-        rows = engine.rules.map { RuleRow(key: $0.key, type: $0.action.type, value: $0.action.value) }
+        entries = found.sorted { $0.name < $1.name }
+        for known in manager.keyboards {
+            rowsByKeyboard[known.id] = known.rules.map { RuleRow(key: $0.key, type: $0.action.type, value: $0.action.value) }
+        }
+        refreshRunning()
+        select(entries.first?.id)
     }
 
-    // Appliqué tout de suite : l'ancien clavier est rendu à macOS, le nouveau est désactivé
-    func selectKeyboard(_ id: KeyboardID?) {
+    var selectedEntry: KeyboardEntry? { entries.first { $0.id == selected } }
+    var isSelectedRunning: Bool { selected.map(running.contains) ?? false }
+
+    // Les lignes du clavier sélectionné
+    var rows: [RuleRow] {
+        get { selected.flatMap { rowsByKeyboard[$0] } ?? [] }
+        set { if let selected { rowsByKeyboard[selected] = newValue } }
+    }
+
+    func select(_ id: KeyboardID?) {
+        cancelCapture()
+        selected = id
+        errorMessage = nil
+        let duplicates = id.map { findDuplicateKeys(in: rules(of: $0)) } ?? []
+        warningMessage = duplicates.isEmpty ? nil
+            : "Touche définie plusieurs fois : \(duplicates.map(keyName).joined(separator: ", ")). La dernière règle est utilisée."
+    }
+
+    // Appliqué tout de suite : le clavier est désactivé pour macOS, ou rendu
+    func setEnabled(_ enabled: Bool) {
+        guard let entry = selectedEntry else { return }
+        manager.add(entry.id, name: entry.name) // sans effet si le clavier est déjà connu
         do {
-            try engine.setKeyboard(id)
+            try manager.setEnabled(entry.id, enabled)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
-        keyboard = engine.keyboard // l'ancien clavier si le changement a échoué
+        refreshRunning() // l'interrupteur revient en arrière si l'activation a échoué
     }
 
-    // Bouton « + » : on attend une touche du clavier externe
+    // Bouton « + » : on attend une touche du clavier sélectionné
     func startCapture() {
+        guard let id = selected else { return }
         isCapturing = true
-        engine.captureNextKey { [weak self] key in
+        manager.captureNextKey(on: id) { [weak self] key in
             guard let self else { return }
             self.isCapturing = false
             self.rows.removeAll { $0.key == key } // une touche = une seule action
@@ -54,7 +88,7 @@ final class ConfigModel: ObservableObject {
     }
 
     func cancelCapture() {
-        engine.cancelCapture()
+        manager.cancelCapture()
         isCapturing = false
     }
 
@@ -62,13 +96,26 @@ final class ConfigModel: ObservableObject {
         rows.removeAll { $0.id == id }
     }
 
+    // Enregistre les raccourcis de tous les claviers modifiés ou déjà connus
     func save() {
-        // Une ligne sans action n'a pas de sens : on l'ignore
-        let rules = rows
+        for entry in entries {
+            let rules = self.rules(of: entry.id)
+            let isKnown = manager.keyboards.contains { $0.id == entry.id }
+            guard isKnown || !rules.isEmpty else { continue }
+            manager.add(entry.id, name: entry.name)
+            manager.update(entry.id, name: entry.name, rules: rules)
+        }
+    }
+
+    // Une ligne sans action n'a pas de sens : on l'ignore
+    private func rules(of id: KeyboardID) -> [Rule] {
+        (rowsByKeyboard[id] ?? [])
             .filter { !$0.value.isEmpty }
             .map { Rule(key: $0.key, action: Action(type: $0.type, value: $0.value)) }
-        engine.updateRules(rules)
-        saveConfig(Config(keyboard: engine.keyboard, rules: rules))
+    }
+
+    private func refreshRunning() {
+        running = Set(entries.map(\.id).filter(manager.isRunning))
     }
 }
 
@@ -76,42 +123,88 @@ struct ConfigView: View {
     @ObservedObject var model: ConfigModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Clavier", selection: Binding(get: { model.keyboard }, set: { model.selectKeyboard($0) })) {
-                Text("Aucun").tag(KeyboardID?.none)
-                ForEach(model.keyboards, id: \.id) { keyboard in
-                    Text(keyboard.name).tag(KeyboardID?.some(keyboard.id))
+        HStack(spacing: 0) {
+            detail
+            Divider()
+            sidebar
+        }
+        .frame(minWidth: 760, minHeight: 360)
+    }
+
+    // Au centre : le clavier sélectionné, son interrupteur et ses raccourcis
+    @ViewBuilder
+    private var detail: some View {
+        if let entry = model.selectedEntry {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(entry.name).font(.title2.bold())
+                        if !entry.isConnected {
+                            Text("Débranché").font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Toggle("Activer", isOn: Binding(get: { model.isSelectedRunning },
+                                                    set: { model.setEnabled($0) }))
+                        .toggleStyle(.switch)
+                        .disabled(!entry.isConnected && !model.isSelectedRunning)
+                }
+                if let message = model.errorMessage {
+                    Text(message).foregroundStyle(.red).font(.callout)
+                }
+                if let message = model.warningMessage {
+                    Text(message).foregroundStyle(.orange).font(.callout)
+                }
+                List {
+                    ForEach($model.rows) { $row in
+                        RuleRowView(row: $row, autofocus: row.id == model.lastAdded) { model.delete(row.id) }
+                    }
+                }
+                HStack {
+                    Button { model.startCapture() } label: { Label("Ajouter", systemImage: "plus") }
+                        .disabled(model.isCapturing || !model.isSelectedRunning)
+                    if model.isCapturing {
+                        Text("Appuie sur une touche de ce clavier…").foregroundStyle(.secondary)
+                        Button("Annuler") { model.cancelCapture() }
+                    } else if !model.isSelectedRunning {
+                        Text("Active le clavier pour ajouter un raccourci.").foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Enregistrer") {
+                        model.save()
+                        NSApp.keyWindow?.close()
+                    }
+                    .keyboardShortcut(.defaultAction)
                 }
             }
-            if let message = model.errorMessage {
-                Text(message).foregroundStyle(.red).font(.callout)
-            }
-            if let message = model.warningMessage {
-                Text(message).foregroundStyle(.orange).font(.callout)
-            }
-            List {
-                ForEach($model.rows) { $row in
-                    RuleRowView(row: $row, autofocus: row.id == model.lastAdded) { model.delete(row.id) }
+            .padding()
+            .frame(maxWidth: .infinity)
+        } else {
+            Text("Aucun clavier externe détecté.\nBranche-en un pour le configurer.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // À droite : tous les claviers, un clic pour sélectionner
+    private var sidebar: some View {
+        List(selection: Binding(get: { model.selected }, set: { model.select($0) })) {
+            ForEach(model.entries) { entry in
+                HStack {
+                    Circle()
+                        .fill(model.running.contains(entry.id) ? Color.green : Color.secondary.opacity(0.4))
+                        .frame(width: 8, height: 8)
+                    VStack(alignment: .leading) {
+                        Text(entry.name)
+                        Text(entry.isConnected ? (model.running.contains(entry.id) ? "Actif" : "Inactif") : "Débranché")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-            }
-            HStack {
-                Button { model.startCapture() } label: { Label("Ajouter", systemImage: "plus") }
-                    .disabled(model.isCapturing || model.keyboard == nil)
-                if model.isCapturing {
-                    Text("Appuie sur une touche du clavier externe…")
-                        .foregroundStyle(.secondary)
-                    Button("Annuler") { model.cancelCapture() }
-                }
-                Spacer()
-                Button("Enregistrer") {
-                    model.save()
-                    NSApp.keyWindow?.close()
-                }
-                .keyboardShortcut(.defaultAction)
+                .tag(entry.id)
             }
         }
-        .padding()
-        .frame(minWidth: 560, minHeight: 320)
+        .frame(width: 220)
     }
 }
 

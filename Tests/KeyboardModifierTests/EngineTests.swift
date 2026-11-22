@@ -17,8 +17,8 @@ final class EngineTests: XCTestCase {
         launched = []
     }
 
-    private func makeEngine(keyboard: KeyboardID?, rules: [Rule] = []) -> Engine {
-        Engine(config: Config(keyboard: keyboard, rules: rules), source: source, mapping: mapping,
+    private func makeEngine(keyboard: KeyboardID? = nil, rules: [Rule] = []) -> Engine {
+        Engine(keyboard: keyboard ?? self.keyboard, rules: rules, source: source, mapping: mapping,
                store: store, runAction: { [unowned self] in self.launched.append($0) })
     }
 
@@ -26,7 +26,7 @@ final class EngineTests: XCTestCase {
         let engine = makeEngine(keyboard: keyboard)
         try engine.start()
         XCTAssertEqual(mapping.disabled, [keyboard])
-        XCTAssertEqual(store.saved, keyboard)
+        XCTAssertEqual(store.saved, [keyboard])
         XCTAssertTrue(engine.isActive)
     }
 
@@ -35,19 +35,13 @@ final class EngineTests: XCTestCase {
         try engine.start()
         engine.stop()
         XCTAssertEqual(mapping.restored, [keyboard])
-        XCTAssertNil(store.saved)
+        XCTAssertEqual(store.saved, [])
         XCTAssertFalse(engine.isActive)
     }
 
     func testArretSansDemarrageNeRestaureRien() {
         makeEngine(keyboard: keyboard).stop()
         XCTAssertTrue(mapping.restored.isEmpty)
-    }
-
-    func testSansClavierRienNEstDesactive() throws {
-        try makeEngine(keyboard: nil).start()
-        XCTAssertTrue(mapping.disabled.isEmpty)
-        XCTAssertEqual(source.startCount, 0)
     }
 
     func testDemarrerDeuxFoisRepartProprement() throws {
@@ -63,14 +57,14 @@ final class EngineTests: XCTestCase {
         let engine = makeEngine(keyboard: keyboard)
         XCTAssertThrowsError(try engine.start()) { XCTAssertEqual($0 as? EngineError, .permissionDenied) }
         XCTAssertTrue(mapping.disabled.isEmpty)
-        XCTAssertNil(store.saved)
+        XCTAssertEqual(store.saved, [])
     }
 
     func testEchecDuMappingRestaureEtLeveLErreur() {
         mapping.disableError = EngineError.mappingFailed("boom")
         let engine = makeEngine(keyboard: keyboard)
         XCTAssertThrowsError(try engine.start())
-        XCTAssertNil(store.saved)
+        XCTAssertEqual(store.saved, [])
         XCTAssertFalse(engine.isActive)
     }
 
@@ -81,28 +75,12 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(mapping.disabled.isEmpty)
     }
 
-    func testChangementDeClavierEchoueGardeLAncien() throws {
-        let engine = makeEngine(keyboard: keyboard)
-        try engine.start()
-        source.startError = EngineError.openFailed(code: 1)
-        // le nouveau clavier ne s'ouvre pas : la config doit garder l'ancien
-        XCTAssertThrowsError(try engine.setKeyboard(other))
-        XCTAssertEqual(engine.keyboard, keyboard)
-    }
-
-    func testRestaurationApresArretBrutal() {
-        store.saved = keyboard // l'appli précédente a été tuée sans restaurer
-        makeEngine(keyboard: nil).restoreLeftoverMapping()
-        XCTAssertEqual(mapping.restored, [keyboard])
-        XCTAssertNil(store.saved)
-    }
-
     func testEchecDeRestaurationGardeLEtatPourLeProchainLancement() throws {
         let engine = makeEngine(keyboard: keyboard)
         try engine.start()
         mapping.restoreError = EngineError.mappingFailed("boom")
         engine.stop()
-        XCTAssertEqual(store.saved, keyboard)
+        XCTAssertEqual(store.saved, [keyboard])
     }
 
     func testToucheConfigureeLanceLAction() throws {
