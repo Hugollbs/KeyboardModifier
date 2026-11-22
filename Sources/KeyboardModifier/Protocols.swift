@@ -18,9 +18,10 @@ protocol KeyMappingController {
     func restoreKeys(of keyboard: KeyboardID) throws
 }
 
-// Mémorise sur disque le clavier dont on a désactivé les touches,
-// pour le réactiver au prochain lancement si l'appli est tuée (kill -9)
+// Mémorise sur disque les claviers dont on a désactivé les touches,
+// pour les réactiver au prochain lancement si l'appli est tuée (kill -9)
 protocol DisabledKeyboardStore {
-    func load() -> KeyboardID?
-    func save(_ keyboard: KeyboardID?)
+    func load() -> [KeyboardID]
+    func add(_ keyboard: KeyboardID)
+    func remove(_ keyboard: KeyboardID)
 }
