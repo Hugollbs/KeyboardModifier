@@ -45,7 +45,8 @@ final class FakeMapping: KeyMappingController, @unchecked Sendable {
 
 // Faux fichier d'état, en mémoire
 final class FakeStore: DisabledKeyboardStore, @unchecked Sendable {
-    var saved: KeyboardID?
-    func load() -> KeyboardID? { saved }
-    func save(_ keyboard: KeyboardID?) { saved = keyboard }
+    var saved: [KeyboardID] = []
+    func load() -> [KeyboardID] { saved }
+    func add(_ keyboard: KeyboardID) { if !saved.contains(keyboard) { saved.append(keyboard) } }
+    func remove(_ keyboard: KeyboardID) { saved.removeAll { $0 == keyboard } }
 }

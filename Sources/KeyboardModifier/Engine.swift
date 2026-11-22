@@ -1,21 +1,24 @@
 import Foundation
 
-// Écoute le clavier ciblé, désactive ses touches pour macOS et lance les actions
+// Écoute UN clavier, désactive ses touches pour macOS et lance les actions.
+// KeyboardManager en crée un par clavier configuré.
 @MainActor
 final class Engine {
-    private var config: Config
+    let keyboard: KeyboardID
+    private(set) var rules: [Rule]
     private var actions: [Int: Action] = [:]
     private var captureHandler: ((Int) -> Void)?
     private let source: HIDSource
     private let mapping: KeyMappingController
     private let store: DisabledKeyboardStore
     private let runAction: @MainActor (Action) -> Void
-    // Non nil quand on a désactivé les touches de ce clavier : c'est ce qu'il faudra restaurer
-    private var disabledKeyboard: KeyboardID?
+    // Vrai quand on a désactivé les touches de ce clavier : c'est ce qu'il faudra restaurer
+    private(set) var isActive = false
 
-    init(config: Config, source: HIDSource, mapping: KeyMappingController,
+    init(keyboard: KeyboardID, rules: [Rule], source: HIDSource, mapping: KeyMappingController,
          store: DisabledKeyboardStore, runAction: @escaping @MainActor (Action) -> Void) {
-        self.config = config
+        self.keyboard = keyboard
+        self.rules = rules
         self.source = source
         self.mapping = mapping
         self.store = store
@@ -24,8 +27,8 @@ final class Engine {
     }
 
     // Version de production : vrais IOKit, vrai hidutil, vrai fichier d'état
-    convenience init(config: Config) {
-        self.init(config: config, source: IOKitHIDSource(), mapping: HidutilMapping(),
+    convenience init(keyboard: KeyboardID, rules: [Rule]) {
+        self.init(keyboard: keyboard, rules: rules, source: IOKitHIDSource(), mapping: HidutilMapping(),
                   store: FileDisabledKeyboardStore(), runAction: run)
     }
 
@@ -34,27 +37,10 @@ final class Engine {
         MainActor.assumeIsolated { stop() }
     }
 
-    var rules: [Rule] { config.rules }
-    var keyboard: KeyboardID? { config.keyboard }
-    var isActive: Bool { disabledKeyboard != nil }
-    var duplicateKeys: [Int] { findDuplicateKeys(in: config.rules) }
-
-    // Au lancement : si l'appli précédente a été tuée sans pouvoir rendre le clavier, on le rend maintenant
-    func restoreLeftoverMapping() {
-        guard let keyboard = store.load() else { return }
-        do {
-            try mapping.restoreKeys(of: keyboard)
-            store.save(nil)
-            log.notice("Clavier \(keyboard.vendorID)/\(keyboard.productID) restauré après un arrêt brutal")
-        } catch {
-            log.error("Restauration impossible : \(error.localizedDescription)")
-        }
-    }
+    var duplicateKeys: [Int] { findDuplicateKeys(in: rules) }
 
     func start() throws {
         stop() // pas d'écrasement : on repart toujours d'un état propre
-        // Aucun clavier choisi : rien à écouter, rien à désactiver
-        guard let keyboard = config.keyboard else { return }
         guard keyboard.isValid else { throw EngineError.invalidKeyboard }
         guard source.hasOtherKeyboards(than: keyboard) else { throw EngineError.onlyKeyboard }
 
@@ -65,50 +51,36 @@ final class Engine {
 
         // On note le clavier AVANT de le désactiver : si l'appli est tuée entre les deux,
         // le prochain lancement saura quoi restaurer
-        store.save(keyboard)
+        store.add(keyboard)
         do {
             try mapping.disableKeys(of: keyboard)
         } catch {
             source.stop()
             source.onKeyEvent = nil
             try? mapping.restoreKeys(of: keyboard) // hidutil a pu appliquer le mapping à moitié
-            store.save(nil)
+            store.remove(keyboard)
             throw error
         }
-        disabledKeyboard = keyboard
+        isActive = true
     }
 
     func stop() {
         source.stop()
         source.onKeyEvent = nil
-        guard let keyboard = disabledKeyboard else { return } // on ne restaure que ce qu'on a désactivé
+        guard isActive else { return } // on ne restaure que ce qu'on a désactivé
         do {
             try mapping.restoreKeys(of: keyboard)
-            store.save(nil)
+            store.remove(keyboard)
         } catch {
             // L'état reste sur disque : le prochain lancement réessaiera
             log.error("Impossible de rendre le clavier à macOS : \(error.localizedDescription)")
         }
-        disabledKeyboard = nil
-    }
-
-    // Change de clavier ciblé. Si le nouveau ne peut pas s'ouvrir, la config garde l'ancien.
-    func setKeyboard(_ keyboard: KeyboardID?) throws {
-        let previous = config
-        stop()
-        config = Config(keyboard: keyboard, rules: config.rules)
-        do {
-            try start()
-        } catch {
-            config = previous
-            try? start() // on remet l'ancien clavier en service
-            throw error
-        }
+        isActive = false
     }
 
     // Remplace les règles à chaud, sans toucher à l'écoute du clavier
     func updateRules(_ rules: [Rule]) {
-        config = Config(keyboard: config.keyboard, rules: rules)
+        self.rules = rules
         buildActions()
     }
 
@@ -123,13 +95,13 @@ final class Engine {
 
     // Dictionnaire touche -> action : recherche instantanée à chaque frappe
     private func buildActions() {
-        let duplicates = findDuplicateKeys(in: config.rules)
+        let duplicates = findDuplicateKeys(in: rules)
         if !duplicates.isEmpty {
             // La dernière règle l'emporte, mais on le dit au lieu de le faire en silence
             log.warning("Touches définies plusieurs fois (la dernière règle est utilisée) : \(duplicates)")
         }
         actions = [:]
-        for rule in config.rules { actions[rule.key] = rule.action }
+        for rule in rules { actions[rule.key] = rule.action }
     }
 
     private func handle(page: Int, usage: Int, value: Int) {
