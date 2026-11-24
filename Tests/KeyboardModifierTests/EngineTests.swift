@@ -113,6 +113,34 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(launched.count, 1)
     }
 
+    func testClavierQuiReapparaitEstDeNouveauBloque() throws {
+        let engine = makeEngine(keyboard: keyboard)
+        try engine.start()
+        source.reconnect() // ex. sortie de veille : macOS a recréé le clavier
+        XCTAssertEqual(mapping.disabled, [keyboard, keyboard])
+        XCTAssertEqual(source.stopCount, 1) // seulement le stop() du début de start : l'écoute n'est pas coupée
+    }
+
+    func testReapparitionApresArretNeBloqueRien() throws {
+        let engine = makeEngine(keyboard: keyboard)
+        try engine.start()
+        engine.stop()
+        source.reconnect()
+        engine.reapplyMapping()
+        XCTAssertEqual(mapping.disabled, [keyboard]) // seulement le start initial
+    }
+
+    func testEchecDeReapplicationGardeLeClavierPrisEnCharge() throws {
+        let engine = makeEngine(keyboard: keyboard)
+        try engine.start()
+        mapping.disableError = EngineError.mappingFailed("test")
+        source.reconnect()
+        XCTAssertTrue(engine.isActive) // on réessaiera à la prochaine réapparition
+        mapping.disableError = nil
+        source.reconnect()
+        XCTAssertEqual(mapping.disabled, [keyboard, keyboard])
+    }
+
     func testDoublonsSignales() {
         let rules = [Rule(key: 5, action: Action(type: "app", value: "A")),
                      Rule(key: 5, action: Action(type: "app", value: "B"))]

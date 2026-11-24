@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class FakeHIDSource: HIDSource {
     var onKeyEvent: ((_ page: Int, _ usage: Int, _ value: Int) -> Void)?
+    var onKeyboardConnected: (() -> Void)?
     var startError: Error?
     var otherKeyboards = true
     private(set) var startCount = 0
@@ -22,6 +23,11 @@ final class FakeHIDSource: HIDSource {
     // Simule un événement du clavier (page 7 = touches, valeur 1 = appui)
     func send(usage: Int, page: Int = HID.keyboardPage, value: Int = 1) {
         onKeyEvent?(page, usage, value)
+    }
+
+    // Simule le retour du clavier (sortie de veille, rebranchement)
+    func reconnect() {
+        onKeyboardConnected?()
     }
 }
 

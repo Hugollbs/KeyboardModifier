@@ -5,6 +5,10 @@ import Foundation
 @MainActor
 final class IOKitHIDSource: HIDSource {
     var onKeyEvent: ((_ page: Int, _ usage: Int, _ value: Int) -> Void)?
+    var onKeyboardConnected: (() -> Void)?
+    // L'appareil IOKit apparaît un peu avant le service que vise hidutil : sans ce délai,
+    // hidutil ne trouverait encore rien (et répondrait quand même « succès »)
+    private static let connectionDelay: TimeInterval = 1
     // nonisolated(unsafe) : deinit n'est pas isolé au thread principal mais doit pouvoir lire le manager ;
     // c'est sûr car au moment du deinit plus personne d'autre n'a de référence sur cet objet
     nonisolated(unsafe) private var manager: IOHIDManager?
@@ -35,6 +39,14 @@ final class IOKitHIDSource: HIDSource {
                 Unmanaged<IOKitHIDSource>.fromOpaque(context).takeUnretainedValue().onKeyEvent?(page, usage, pressed)
             }
         }, context)
+        // Appelé par IOKit chaque fois que le clavier ciblé est détecté : à l'ouverture s'il est
+        // déjà branché, puis à chaque fois que macOS le recrée (sortie de veille, rebranchement)
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, _ in
+            guard let context else { return }
+            MainActor.assumeIsolated {
+                Unmanaged<IOKitHIDSource>.fromOpaque(context).takeUnretainedValue().keyboardDidAppear()
+            }
+        }, context)
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
 
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -46,6 +58,13 @@ final class IOKitHIDSource: HIDSource {
             throw EngineError.openFailed(code: result)
         }
         self.manager = manager
+    }
+
+    // weak : si la source a été détruite entre-temps, on ne fait rien
+    private func keyboardDidAppear() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.connectionDelay) { [weak self] in
+            MainActor.assumeIsolated { self?.onKeyboardConnected?() }
+        }
     }
 
     func stop() {
@@ -62,6 +81,7 @@ final class IOKitHIDSource: HIDSource {
     // Débranche le callback (plus aucun appel vers self), retire le manager du run loop et le ferme
     private nonisolated static func teardown(_ manager: IOHIDManager, wasOpened: Bool) {
         IOHIDManagerRegisterInputValueCallback(manager, nil, nil)
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
         IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         if wasOpened { IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone)) }
     }
