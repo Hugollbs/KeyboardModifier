@@ -3,6 +3,7 @@ import SwiftUI
 import IOKit.hid
 
 private let relaunchFlag = "--relaunched"
+private let wakeSafetyDelay: TimeInterval = 3 // laisse le temps à macOS de rétablir les claviers
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let manager = KeyboardManager(config: config)
         self.manager = manager
         manager.restoreLeftoverMappings() // rend les claviers si l'appli précédente a été tuée
+        repairLaunchAtLoginIfNeeded()
         startEngine(manager)
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
@@ -97,7 +99,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             showError("Le clavier n'a pas pu être désactivé", error)
             return
         }
-        guard !CommandLine.arguments.contains(relaunchFlag) else {
+        // Hors d'un .app, bundlePath est le dossier du binaire : `open` l'ouvrirait dans le Finder
+        guard isRunningFromAppBundle, !CommandLine.arguments.contains(relaunchFlag) else {
             showRestartAlert()
             return
         }
@@ -186,6 +189,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
         let enable = !isLaunchAtLoginEnabled()
+        if enable && !isRunningFromAppBundle {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "Lance d'abord l'appli depuis KeyboardModifier.app"
+            alert.informativeText = "Cette version (build de développement) change d'identité à chaque compilation : macOS redemanderait les autorisations à chaque fois. Construis l'appli avec scripts/make-app.sh et active l'option depuis celle-ci."
+            alert.runModal()
+            return
+        }
         setLaunchAtLogin(enable)
         sender.state = isLaunchAtLoginEnabled() ? .on : .off
     }
@@ -206,12 +217,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    // Après une veille, macOS recrée le clavier et le mapping hidutil est perdu : les touches
-    // s'écrivent de nouveau. On le ré-applique, avec un délai pour laisser le clavier réapparaître.
+    // Le cas normal (clavier recréé par macOS au réveil) est géré par IOKitHIDSource dès que le clavier
+    // réapparaît. Ceci est un filet de sécurité si le blocage est perdu sans que le clavier soit recréé.
     @objc private func didWake() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + wakeSafetyDelay) { [weak self] in
             MainActor.assumeIsolated {
-                self?.manager?.restartRunning() // seulement les claviers pris en charge, pas ceux rendus à macOS
+                self?.manager?.reapplyRunning() // seulement les claviers pris en charge, pas ceux rendus à macOS
             }
         }
     }

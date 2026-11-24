@@ -47,6 +47,9 @@ final class Engine {
         source.onKeyEvent = { [weak self] page, usage, value in
             self?.handle(page: page, usage: usage, value: value)
         }
+        source.onKeyboardConnected = { [weak self] in
+            self?.reapplyMapping()
+        }
         try source.start(keyboard: keyboard)
 
         // On note le clavier AVANT de le désactiver : si l'appli est tuée entre les deux,
@@ -57,6 +60,7 @@ final class Engine {
         } catch {
             source.stop()
             source.onKeyEvent = nil
+            source.onKeyboardConnected = nil
             try? mapping.restoreKeys(of: keyboard) // hidutil a pu appliquer le mapping à moitié
             store.remove(keyboard)
             throw error
@@ -67,6 +71,7 @@ final class Engine {
     func stop() {
         source.stop()
         source.onKeyEvent = nil
+        source.onKeyboardConnected = nil
         guard isActive else { return } // on ne restaure que ce qu'on a désactivé
         do {
             try mapping.restoreKeys(of: keyboard)
@@ -76,6 +81,18 @@ final class Engine {
             log.error("Impossible de rendre le clavier à macOS : \(error.localizedDescription)")
         }
         isActive = false
+    }
+
+    // Quand macOS recrée le clavier (veille, rebranchement), le blocage hidutil est perdu.
+    // On le ré-applique sans couper l'écoute. En cas d'échec, le clavier reste pris en charge :
+    // la prochaine réapparition (ou le prochain réveil) réessaiera.
+    func reapplyMapping() {
+        guard isActive else { return }
+        do {
+            try mapping.disableKeys(of: keyboard)
+        } catch {
+            log.error("Impossible de ré-appliquer le blocage : \(error.localizedDescription)")
+        }
     }
 
     // Remplace les règles à chaud, sans toucher à l'écoute du clavier

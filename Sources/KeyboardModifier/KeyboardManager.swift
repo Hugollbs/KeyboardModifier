@@ -69,15 +69,10 @@ final class KeyboardManager {
         for engine in engines.values { engine.stop() }
     }
 
-    // Après une veille : on ré-applique seulement aux claviers actuellement pris en charge
-    func restartRunning() {
-        for engine in engines.values where engine.isActive {
-            do {
-                try engine.start()
-            } catch {
-                log.error("Redémarrage impossible : \(error.localizedDescription)")
-            }
-        }
+    // Après une veille : on ré-applique le blocage aux claviers pris en charge (les autres sont ignorés
+    // par reapplyMapping). Pas de start() : un échec ne doit pas faire perdre le clavier.
+    func reapplyRunning() {
+        for engine in engines.values { engine.reapplyMapping() }
     }
 
     // Active ou désactive un clavier tout de suite. Si l'activation échoue, la config ne change pas.

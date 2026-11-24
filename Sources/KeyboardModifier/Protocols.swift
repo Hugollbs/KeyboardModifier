@@ -6,6 +6,8 @@
 protocol HIDSource: AnyObject {
     // page, usage et valeur de chaque événement HID
     var onKeyEvent: ((_ page: Int, _ usage: Int, _ value: Int) -> Void)? { get set }
+    // Le clavier ciblé vient d'être détecté (au démarrage, au réveil, au rebranchement)
+    var onKeyboardConnected: (() -> Void)? { get set }
     func start(keyboard: KeyboardID) throws
     func stop()
     // Y a-t-il un autre clavier que celui-ci (le clavier du Mac compte) ?

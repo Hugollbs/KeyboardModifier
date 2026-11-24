@@ -128,7 +128,16 @@ final class KeyboardManagerTests: XCTestCase {
     func testRedemarrageApresVeilleSeulementPourLesClavierActifs() throws {
         let manager = makeManager([keyboard(a, enabled: true), keyboard(b, enabled: false)])
         try manager.start()
-        manager.restartRunning()
+        manager.reapplyRunning()
         XCTAssertEqual(mapping.disabled, [a, a]) // ré-appliqué sur a, jamais sur b
+    }
+
+    func testEchecAuReveilNeFaitPasPerdreLeClavier() throws {
+        let manager = makeManager([keyboard(a, enabled: true)])
+        try manager.start()
+        mapping.disableError = EngineError.mappingFailed("test")
+        manager.reapplyRunning()
+        XCTAssertTrue(manager.isRunning(a)) // avant : start() échouait et le clavier était perdu
+        XCTAssertEqual(sources[a]?.stopCount, 1) // l'écoute n'a pas été coupée
     }
 }
